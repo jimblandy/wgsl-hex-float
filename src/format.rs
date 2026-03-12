@@ -66,7 +66,7 @@ pub trait BinaryFormat: Sized {
     /// If the exponent field is interpreted as an unsigned number, this is the
     /// number subtracted from that to produce the actual exponent for the power
     /// of two by which the mantissa is multipled.
-    const EXPONENT_BIAS: u32;
+    const EXPONENT_BIAS: u32 = (1 << (Self::EXPONENT_WIDTH - 1)) - 1;
 
     /// Construct a `Self` floating-point value, given explicit values for its fields.
     ///
@@ -95,7 +95,6 @@ pub trait BinaryFormat: Sized {
 
 impl BinaryFormat for f32 {
     const MANTISSA_WIDTH: u32 = 23;
-    const EXPONENT_BIAS: u32 = 127;
 
     fn from_bitfields(sign: u32, exponent_bits: u32, mantissa_bits: u64) -> Self {
         assert!(sign <= 1);
@@ -110,7 +109,6 @@ impl BinaryFormat for f32 {
 
 impl BinaryFormat for f64 {
     const MANTISSA_WIDTH: u32 = 52;
-    const EXPONENT_BIAS: u32 = 1023;
 
     fn from_bitfields(sign: u32, exponent_bits: u32, mantissa_bits: u64) -> Self {
         assert!(sign <= 1);
