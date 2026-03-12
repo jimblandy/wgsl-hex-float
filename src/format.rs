@@ -15,24 +15,32 @@ any type that implements this trait.
 ///   bits.
 ///
 /// - The sign bit is `0` for positive values, and `1` for negative values.
+///   Below, let `s` be `1` when the sign bit is `0`, and `-1` when the sign bit
+///   is `1`. [`BinaryFormat::SIGN_SHIFT`] gives the position of the sign bit
+///   within a value.
 ///
 /// - The mantissa bits give the fractional digits of a binary number, where the
 ///   most significant bit has a value of 1/2, and the next most significant
 ///   bits have values of 1/4, 1/8, 1/16, and so on. Call this value between
 ///   zero and one `m`. (We'll cover the implicit leading `1` bit below.)
+///   [`BinaryFormat::MANTISSA_WIDTH`] gives the width of the format's mantissa
+///   in bits.
 ///
-/// - The exponent field usually provides an exponent, but if all bits are
-///   clear, or all bits are set, those have special meanings:
+/// - The exponent field, whose width in bits is given by
+///   [`BinaryFormat::EXPONENT_WIDTH`], usually provides an exponent, but if all
+///   bits are clear, or all bits are set, those have special meanings:
 ///
 ///   - If the exponent is neither all zero bits nor all one bits, then
 ///     interpret it as an unsigned number `e`. The value of the floating point
-///     number is then `(1 + m) * 2^(e - B)`, where `B` is a bias that is a
+///     number is then `s * (1 + m) * 2^(e - B)`, where `B` is a bias that is a
 ///     characteristic constant of the floating point format.
+///     [`BinaryFormat::EXPONENT_BIAS`] gives the format's value for `B`.
 ///
 ///   - If the exponent is all zero bits, then the value is a "subnormal" value,
-///     representing a value very close to zero, equal to `m * 2^(1 - B))`.
-///     Note the use of `m` instead of `(1 + m)`, and the use of `1` as the
-///     pre-biased exponent, not zero as the bitfield would suggest.
+///     representing a value very close to zero, equal to `s * m * 2^(1 - B))`.
+///     Note the use of `m` instead of `(1 + m)`; subnormals are the only way to
+///     get a zero in an IEEE binary floating point format. Note also the use of
+///     `1` as the pre-biased exponent, not zero as the bitfield would suggest.
 ///
 ///   - If the exponent is all one bits (that is, the largest value the bitfield
 ///     can hold), then:
@@ -59,6 +67,8 @@ pub trait BinaryFormat: Sized {
     const EXPONENT_WIDTH: u32 = std::mem::size_of::<Self>() as u32 * 8 - Self::MANTISSA_WIDTH - 1;
 
     /// The bit position of the sign bit.
+    ///
+    /// This is, naturally, one short of the total number of bits in the type.
     const SIGN_SHIFT: u32 = std::mem::size_of::<Self>() as u32 * 8 - 1;
 
     /// The exponent bias.
@@ -66,6 +76,10 @@ pub trait BinaryFormat: Sized {
     /// If the exponent field is interpreted as an unsigned number, this is the
     /// number subtracted from that to produce the actual exponent for the power
     /// of two by which the mantissa is multipled.
+    ///
+    /// In principle, many different biases would work, but IEEE formats all
+    /// choose this to be half the largest value the exponent field can hold,
+    /// rounded down.
     const EXPONENT_BIAS: u32 = (1 << (Self::EXPONENT_WIDTH - 1)) - 1;
 
     /// Construct a `Self` floating-point value, given explicit values for its fields.
@@ -255,12 +269,12 @@ fn f32_subnormals() {
     let two_p80 = two_p40 * two_p40;
     let two_p120 = two_p80 * two_p40;
     // Anything above 2**127 is out of range. So the subnormals can represent
-    // values whose reciprocals cannot be expressed!
+    // values whose reciprocals cannot be represented!
     
     // The smallest non-subnormal value.
     assert_eq!(f32::from_bitfields(0, 1, 0b00000000000000000000000), 1.0 / two_p120 / 64.0); 
 
-    // The largest subnormal value.
+    // The largest subnormal power of two.
     //
     // Note: compared to the value above, we decreased the exponent by one,
     // *and* shifted the effective mantissa right by one, but the value is only
