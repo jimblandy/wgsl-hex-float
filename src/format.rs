@@ -16,12 +16,38 @@ any type that implements this trait.
 ///
 /// - The sign bit is `0` for positive values, and `1` for negative values.
 ///
-/// - The exponent bits, interpreted as an unsigned integer, and with a bias
-///   subtracted, give the exponent for the power of two by which the mantissa
-///   is multiplied.
+/// - The mantissa bits give the fractional digits of a binary number, where the
+///   most significant bit has a value of 1/2, and the next most significant
+///   bits have values of 1/4, 1/8, 1/16, and so on. Call this value between
+///   zero and one `m`. (We'll cover the implicit leading `1` bit below.)
 ///
-/// - The mantissa bits give the fractional digits 
+/// - The exponent field usually provides an exponent, but if all bits are
+///   clear, or all bits are set, those have special meanings:
 ///
+///   - If the exponent is neither all zero bits nor all one bits, then
+///     interpret it as an unsigned number `e`. The value of the floating point
+///     number is then `(1 + m) * 2^(e - B)`, where `B` is a bias that is a
+///     characteristic constant of the floating point format.
+///
+///   - If the exponent is all zero bits, then the value is a "subnormal" value,
+///     representing a value very close to zero, equal to `m * 2^(1 - B))`.
+///     Note the use of `m` instead of `(1 + m)`, and the use of `1` as the
+///     pre-biased exponent, not zero as the bitfield would suggest.
+///
+///   - If the exponent is all one bits (that is, the largest value the bitfield
+///     can hold), then:
+///
+///     - If the mantissa bits are zero, the value is an infinity, whose sign is
+///       given by the sign bit.
+///
+///     - Otherwise, if the mantissa bits are non-zero, the value is a NaN, and
+///       the mantissa bits carry some sort of diagnostic information whose
+///       interpretation IEEE doesn't specify, and which is generally up to the
+///       application.
+///
+/// The IEEE 754 `binary16`, `binary32`, `binary64`, and `binary128` formats all
+/// satisfy these constraints. Rust`s `f16`, `f32`, `f64`, and `f128` types use
+/// those formats.
 pub trait BinaryFormat: Sized {
     /// The length of the mantissa field in bits.
     const MANTISSA_WIDTH: u32;
