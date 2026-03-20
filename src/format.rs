@@ -17,7 +17,7 @@ any type that implements this trait.
 /// - The sign bit is `0` for positive values, and `1` for negative values.
 ///   Below, let `s` be `1` when the sign bit is `0`, and `-1` when the sign bit
 ///   is `1`. [`BinaryFormat::SIGN_SHIFT`] gives the position of the sign bit
-///   within a value.
+///   within a value; it's always one less than the total number of bits.
 ///
 /// - The mantissa bits give the fractional digits of a binary number, where the
 ///   most significant bit has a value of 1/2, and the next most significant
@@ -108,7 +108,7 @@ pub trait BinaryFormat: Sized {
 }
 
 impl BinaryFormat for f32 {
-    const MANTISSA_WIDTH: u32 = 23;
+    const MANTISSA_WIDTH: u32 = f32::MANTISSA_DIGITS - 1;
 
     fn from_bitfields(sign: u32, exponent_bits: u32, mantissa_bits: u64) -> Self {
         assert!(sign <= 1);
@@ -122,7 +122,7 @@ impl BinaryFormat for f32 {
 }
 
 impl BinaryFormat for f64 {
-    const MANTISSA_WIDTH: u32 = 52;
+    const MANTISSA_WIDTH: u32 = f64::MANTISSA_DIGITS - 1;
 
     fn from_bitfields(sign: u32, exponent_bits: u32, mantissa_bits: u64) -> Self {
         assert!(sign <= 1);
@@ -238,7 +238,11 @@ fn interesting_normals() {
         6.0 / 5.0
     );
     assert_eq!(
-        f64::from_bitfields(0, 1023, 0b0011001100110011001100110011001100110011001100110011),
+        f64::from_bitfields(
+            0,
+            1023,
+            0b0011001100110011001100110011001100110011001100110011
+        ),
         6.0 / 5.0
     );
 }
@@ -270,9 +274,12 @@ fn f32_subnormals() {
     let two_p120 = two_p80 * two_p40;
     // Anything above 2**127 is out of range. So the subnormals can represent
     // values whose reciprocals cannot be represented!
-    
+
     // The smallest non-subnormal value.
-    assert_eq!(f32::from_bitfields(0, 1, 0b00000000000000000000000), 1.0 / two_p120 / 64.0); 
+    assert_eq!(
+        f32::from_bitfields(0, 1, 0b00000000000000000000000),
+        1.0 / two_p120 / 64.0
+    );
 
     // The largest subnormal power of two.
     //
@@ -280,11 +287,23 @@ fn f32_subnormals() {
     // *and* shifted the effective mantissa right by one, but the value is only
     // halved, not quartered. The effective exponent for subnormals is
     // `1-EXPONENT_BIAS`, even though the exponent field is `0`.
-    assert_eq!(f32::from_bitfields(0, 0, 0b10000000000000000000000), 1.0 / two_p120 / 128.0);
+    assert_eq!(
+        f32::from_bitfields(0, 0, 0b10000000000000000000000),
+        1.0 / two_p120 / 128.0
+    );
 
-    assert_eq!(f32::from_bitfields(0, 0, 0b00001000000000000000000), 1.0 / two_p120 / 128.0 / 16.0);
+    assert_eq!(
+        f32::from_bitfields(0, 0, 0b00001000000000000000000),
+        1.0 / two_p120 / 128.0 / 16.0
+    );
 
     // The smallest subnormal, and thus the smallest `f32`.
-    assert_eq!(f32::from_bitfields(0, 0, 0b00000000000000000000001), 1.0 / two_p120 / two_p20 / 512.0);
-    assert_eq!(f32::from_bitfields(0, 0, 0b00000000000000000000001), f32::next_up(0.0));
+    assert_eq!(
+        f32::from_bitfields(0, 0, 0b00000000000000000000001),
+        1.0 / two_p120 / two_p20 / 512.0
+    );
+    assert_eq!(
+        f32::from_bitfields(0, 0, 0b00000000000000000000001),
+        f32::next_up(0.0)
+    );
 }
