@@ -4,10 +4,6 @@ This crate provides `#[no_std]`-friendly functions for parsing hexadecimal float
 values as described in the [WGSL specification][wgsl], as well as more general
 utilities that you can use for building floats from your own syntax.
 
-TODO:
-- Make `Fraction` use negative exponents.
-- Make everyone use binary exponents, not base 16`
-
 ```ignore
 # fn main() {
 let f: f32 = hex_float::wgsl::parse("0x80.8p-5").unwrap().get();
