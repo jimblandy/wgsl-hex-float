@@ -5,9 +5,9 @@ use crate::shl_exact::shl_exact;
 /// The fractional part of a hexadecimal float literal, accumulated digit-by-digit.
 ///
 /// This type represents the portion of a hexadecimal floating point literal
-/// that follows the fraction point, along with the information needed to add
+/// that follows the hexadecimal point, along with the information needed to add
 /// new digits at the end. It represents the numeric value
-/// `mantissa / 16.ipow(exponent_16)`.
+/// `mantissa / 16.powi(exponent_16)`.
 ///
 /// This type is not simply a `u64`, because we need to represent leading and
 /// trailing zeros separately from the interesting part of the value, so that we
@@ -22,7 +22,7 @@ use crate::shl_exact::shl_exact;
 /// 16²³. This input would be represented like so:
 ///
 /// ```
-/// # use wgsl_hex_float::Fraction;
+/// # use hex_float::Fraction;
 /// assert_eq!(
 ///     Fraction::from_str("0000000000000000000012300000000000000000000"),
 ///     Ok(Fraction {
@@ -38,10 +38,14 @@ pub struct Fraction {
     /// The value of the most significant non-zero digits in the input.
     ///
     /// If the input contains only zero digits, this is zero. Otherwise, the low
-    /// four bits are never zero.
+    /// four bits are never all zero.
     pub mantissa: u64,
 
     /// The power of 16 by which `mantissa` should be divided.
+    ///
+    /// Another way to look at this is that it is the smallest number of hex
+    /// digits following the hexadecimal point with which we could represent the
+    /// value.
     ///
     /// If the input contains only zero digits, this is zero.
     pub exponent_16: u32,
@@ -60,11 +64,39 @@ pub struct Fraction {
 }
 
 impl Fraction {
+    /// Return the `Fraction` value representing zero.
     pub fn zero() -> Fraction {
         Fraction {
             mantissa: 0,
             exponent_16: 0,
             trailing_zeros: 0,
+            exact: true,
+        }
+    }
+
+    /// Return the `Fraction` value representing `mantissa / (16.powi(exponent))`.
+    ///
+    /// Assume that subsequent digits pushed onto `self` should be placed as if
+    /// `exponent` digits have already been pushed.
+    pub fn with_exponent(mantissa: u64, exponent_16: u32) -> Fraction {
+        if mantissa == 0 {
+            return Fraction {
+                mantissa: 0,
+                exponent_16: 0,
+                trailing_zeros: exponent_16,
+                exact: true,
+            }
+        }
+
+        // To maintain our invariant that the bottom nibble of `mantissa` is
+        // always non-zero, we need to move any trailing zeros from `mantissa`
+        // into `trailing_zeros`.
+        let trailing_zeros = mantissa.trailing_zeros() / 4;
+
+        Fraction {
+            mantissa: mantissa >> (trailing_zeros * 4),
+            exponent_16: exponent_16 - trailing_zeros,
+            trailing_zeros,
             exact: true,
         }
     }
@@ -109,13 +141,14 @@ impl Fraction {
     ///
     /// Return the remaining portion of `digits`, which is either empty, or
     /// starts with a character that is not a hexadecimal digit.
-    pub fn consume_hex_digits<'d>(&mut self, digits: &'d str) -> &'d str {
+    pub fn consume_hex_digits<'d>(&mut self, mut digits: &'d str) -> &'d str {
         let mut chars = digits.chars();
         while let Some(digit) = chars.next().and_then(|ch| ch.to_digit(16)) {
+            digits = chars.as_str();
             self.push_hex_digit(digit);
         }
 
-        chars.as_str()
+        digits
     }
 
     /// Construct a [`Fraction`] value from the entire contents of `digits`.
@@ -132,6 +165,24 @@ impl Fraction {
         }
         Ok(w)
     }
+}
+
+#[test]
+fn consume_hex_digits() {
+    let mut f = Fraction::zero();
+    assert_eq!(
+        f.consume_hex_digits("fp+2"),
+        "p+2"
+    );
+    assert_eq!(
+        f,
+        Fraction {
+            mantissa: 0xf,
+            exponent_16: 1,
+            trailing_zeros: 0,
+            exact: true,
+        }
+    );
 }
 
 #[test]
@@ -217,5 +268,33 @@ fn from_str() {
             trailing_zeros: 20,
             exact: true,
         })
+    );
+}
+
+#[test]
+fn with_exponent() {
+    assert_eq!(
+        Fraction::with_exponent(0, 0),
+        Fraction { mantissa: 0, exponent_16: 0, trailing_zeros: 0, exact: true }
+    );
+    assert_eq!(
+        Fraction::with_exponent(0, 20),
+        Fraction { mantissa: 0, exponent_16: 0, trailing_zeros: 20, exact: true }
+    );
+    assert_eq!(
+        Fraction::with_exponent(0x1, 20),
+        Fraction { mantissa: 0x1, exponent_16: 20, trailing_zeros: 0, exact: true }
+    );
+    assert_eq!(
+        Fraction::with_exponent(0x10000, 20),
+        Fraction { mantissa: 0x1, exponent_16: 16, trailing_zeros: 4, exact: true }
+    );
+    assert_eq!(
+        Fraction::with_exponent(0x1000000000000001, 30),
+        Fraction { mantissa: 0x1000000000000001, exponent_16: 30, trailing_zeros: 0, exact: true }
+    );
+    assert_eq!(
+        Fraction::with_exponent(0x1000000010000000, 30),
+        Fraction { mantissa: 0x100000001, exponent_16: 23, trailing_zeros: 7, exact: true }
     );
 }

@@ -1,33 +1,38 @@
 /*! Parsing hexadecimal float values.
 
 This crate provides `#[no_std]`-friendly functions for parsing hexadecimal float
-values as described in the [WGSL specification][wgsl].
+values as described in the [WGSL specification][wgsl], as well as more general
+utilities that you can use for building floats from your own syntax.
+
+TODO:
+- Make `Fraction` use negative exponents.
+- Make everyone use binary exponents, not base 16`
 
 ```ignore
 # fn main() {
-let f: f32 = wgsl_hex_float::parse("0x80.8p-5").unwrap().get();
+let f: f32 = hex_float::wgsl::parse("0x80.8p-5").unwrap().get();
 assert_eq!(f, 4.015625);
 
 // Parse a literal into its parts
-let (p, rest) = wgsl_hex_float::parse_as_parts("-0xc.04p5 and more").unwrap();
+let (p, rest) = hex_float::parse_as_parts("-0xc.04p5 and more").unwrap();
 assert_eq!(p, Parts {
     sign: -1,
     prefix: true,
-    whole: Whole::whole(12),
-    fraction: Fraction::with_exponent(4, -8), // 4 * 2^-8
+    whole: Whole::new(12),
+    fraction: Fraction::with_exponent(4, 2), // 4 * 16^-2
     exponent: 5,
 });
 assert_eq!(rest, " and more");
 
 // Assemble those parts into an `f64`.
-let g: f64 = wgsl_hex_float::from_parts(p).unwrap().get();
+let g: f64 = hex_float::from_parts(p).unwrap().get();
 assert_eq!(g, -384.5);
 # }
 ```
 
-This crate reports rounding and overflow, when the value of a hexadecimal
-floating point literal cannot be expressed exactly in the target type. (WGSL
-implementations must treat these cases as compile-time errors.)
+This crate's functions report rounding and overflow, when the value of a
+hexadecimal floating point literal cannot be expressed exactly in the target
+type. (WGSL implementations must treat these cases as compile-time errors.)
 
 This crate also provides entry points that accept pre-parsed sign, exponent,
 whole part and fractional part values: if users have already performed their own
@@ -45,13 +50,14 @@ properly fold leading and trailing zeros into the exponent, and so on.
 
 mod format;
 mod fraction;
-mod parse;
 mod shl_exact;
+mod parts;
+pub mod wgsl;
 mod whole;
 
 pub use format::BinaryFormat;
 pub use fraction::Fraction;
-pub use parse::{Parts, parse_parts};
+pub use parts::{Parts, PartFlags};
 pub use whole::Whole;
 
 /// The result of assembling a hexadecimal float value.

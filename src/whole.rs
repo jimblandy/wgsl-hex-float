@@ -5,8 +5,8 @@ use crate::shl_exact::shl_exact;
 /// The whole-number part of a hexadecimal float literal, accumulated digit-by-digit.
 ///
 /// This type represents the portion of a hexadecimal floating point literal
-/// that precedes the fraction point. It represents the numeric value
-/// `mantissa * 16.ipow(exponent_16)`.
+/// that precedes the hexadecimal point. It represents the numeric value
+/// `mantissa * 16.powi(exponent_16)`.
 ///
 /// This type is not simply a `u64`, because we need to represent trailing zeros
 /// separately from the interesting part of the value, so that we can accept
@@ -22,7 +22,7 @@ use crate::shl_exact::shl_exact;
 /// This input would be represented like so:
 ///
 /// ```
-/// # use wgsl_hex_float::Whole;
+/// # use hex_float::Whole;
 /// assert_eq!(
 ///     Whole::from_str("12300000000000000000000"),
 ///     Ok(Whole {
@@ -39,7 +39,7 @@ use crate::shl_exact::shl_exact;
 /// `u64` can only hold sixteen hex digits, so this would be represented like so:
 ///
 /// ```
-/// # use wgsl_hex_float::Whole;
+/// # use hex_float::Whole;
 /// assert_eq!(
 ///     Whole::from_str("123456789abcdef01"),
 ///     Ok(Whole {
@@ -76,6 +76,21 @@ impl Whole {
         Whole {
             mantissa: 0,
             exponent_16: 0,
+            exact: true,
+        }
+    }
+
+    pub fn new(value: u64) -> Whole {
+        if value == 0 {
+            return Whole::zero();
+        }
+
+        // How many trailing zero hex digits must we push into the exponent?
+        let exponent_16 = value.trailing_zeros() / 4;
+        Whole {
+            // Ensure the mantissa's bottom nibble is non-zero.
+            mantissa: value >> (exponent_16 * 4),
+            exponent_16,
             exact: true,
         }
     }
@@ -124,13 +139,14 @@ impl Whole {
     ///
     /// Return the remaining portion of `digits`, which is either empty, or
     /// starts with a character that is not a hexadecimal digit.
-    pub fn consume_hex_digits<'d>(&mut self, digits: &'d str) -> &'d str {
+    pub fn consume_hex_digits<'d>(&mut self, mut digits: &'d str) -> &'d str {
         let mut chars = digits.chars();
         while let Some(digit) = chars.next().and_then(|ch| ch.to_digit(16)) {
+            digits = chars.as_str();
             self.push_hex_digit(digit);
         }
 
-        chars.as_str()
+        digits
     }
 
     /// Construct a [`Whole`] value from the entire contents of `digits`.
@@ -147,6 +163,23 @@ impl Whole {
         }
         Ok(w)
     }
+}
+
+#[test]
+fn consume_hex_digits() {
+    let mut w = Whole::zero();
+    assert_eq!(
+        w.consume_hex_digits("a.fp+2"),
+        ".fp+2"
+    );
+    assert_eq!(
+        w,
+        Whole {
+            mantissa: 0xa,
+            exponent_16: 0,
+            exact: true,
+        }
+    );
 }
 
 #[test]
