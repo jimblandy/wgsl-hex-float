@@ -59,26 +59,3 @@ pub use format::BinaryFormat;
 pub use fraction::Fraction;
 pub use parts::{Parts, PartFlags};
 pub use whole::Whole;
-
-/// The result of assembling a hexadecimal float value.
-pub enum Parsed<T> {
-    /// The input can be represented exactly as the given value.
-    Exact(T),
-
-    /// The input value cannot be represented exactly in the given type,
-    /// but can be represented with rounding as the given value.
-    Rounded(T),
-
-    /// The input overflowed, and is represented as the given infinity.
-    Infinity(T),
-}
-
-impl<T> Parsed<T> {
-    pub fn get(self) -> T {
-        match self {
-            Parsed::Exact(v) => v,
-            Parsed::Rounded(v) => v,
-            Parsed::Infinity(v) => v,
-        }
-    }
-}

@@ -4,7 +4,7 @@ The main type of interest here is [`Parts`].
 
 */
 
-use crate::{Fraction, Whole};
+use crate::{BinaryFormat, Fraction, Whole};
 
 /// A parsed hexadecimal literal, ready to be converted into a Rust value.
 ///
@@ -50,4 +50,37 @@ bitflags::bitflags! {
         /// An exponent, introduced by a `'p'` or `'P'` character.
         const EXPONENT = 1 << 5;
     }
+}
+
+impl<S> Parts<S> {
+    pub fn to_float<T: BinaryFormat>(&self) -> Result<Assembled<T>, Error> {
+        todo!()
+    }
+}
+
+/// The result of assembling a hexadecimal literal value.
+pub enum Assembled<T> {
+    /// The input can be represented exactly as the given value.
+    Exact(T),
+
+    /// The input value cannot be represented exactly in the given type,
+    /// but can be represented with rounding as the given value.
+    Rounded(T),
+
+    /// The input overflowed, and is represented as the given infinity.
+    Infinity(T),
+}
+
+impl<T> Assembled<T> {
+    pub fn get(self) -> T {
+        match self {
+            Self::Exact(v) => v,
+            Self::Rounded(v) => v,
+            Self::Infinity(v) => v,
+        }
+    }
+}
+
+#[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
+pub enum Error {
 }
