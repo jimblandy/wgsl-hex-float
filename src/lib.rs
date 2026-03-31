@@ -46,7 +46,6 @@ properly fold leading and trailing zeros into the exponent, and so on.
 
 mod format;
 mod fraction;
-mod shl_exact;
 mod parts;
 pub mod wgsl;
 mod whole;

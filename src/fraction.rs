@@ -1,13 +1,12 @@
 //! Definition of the [`Fraction`] type.
 
-use crate::shl_exact::shl_exact;
-
 /// The fractional part of a hexadecimal float literal, accumulated digit-by-digit.
 ///
 /// This type represents the portion of a hexadecimal floating point literal
 /// that follows the hexadecimal point, along with the information needed to add
-/// new digits at the end. It represents the numeric value
-/// `mantissa / 16.powi(exponent_16)`.
+/// new digits at the end. It represents the numeric value `mantissa *
+/// 2**exponent`, where `exponent` is generally negative. This value is always
+/// in the half-open range `[0, 1)`.
 ///
 /// This type is not simply a `u64`, because we need to represent leading and
 /// trailing zeros separately from the interesting part of the value, so that we
@@ -19,7 +18,7 @@ use crate::shl_exact::shl_exact;
 ///
 /// This is `123` preceded and followed by 20 `0` digits. This value can be
 /// expressed as an exact `f32` value, since it is just 0x123 divided by
-/// 16²³. This input would be represented like so:
+/// 2⁹². This input would be represented like so:
 ///
 /// ```
 /// # use hex_float::Fraction;
@@ -27,38 +26,45 @@ use crate::shl_exact::shl_exact;
 ///     Fraction::from_str("0000000000000000000012300000000000000000000"),
 ///     Ok(Fraction {
 ///         mantissa: 0x123,
-///         exponent_16: 23,
-///         trailing_zeros: 20,
+///         exponent: (20 + 3) * -4,
+///         last_digit_exponent: (20 + 3 + 20) * -4,
+///         exact: true,
+///     })
+/// );
+/// ```
+///
+/// Since `Fraction` represents the exponent as a power of two, it can
+/// represent some 17-digit hex fractional values exactly:
+///
+/// ```
+/// # use hex_float::Fraction;
+/// assert_eq!(
+///     Fraction::from_str("3000000000000000c"),
+///     Ok(Fraction {
+///         mantissa: 0xc000000000000003,
+///         exponent: 16 * -4 - 2,
+///         last_digit_exponent: (16 + 1) * -4,
 ///         exact: true,
 ///     })
 /// );
 /// ```
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Fraction {
-    /// The value of the most significant non-zero digits in the input.
+    /// The most significant bits of the value.
     ///
-    /// If the input contains only zero digits, this is zero. Otherwise, the low
-    /// four bits are never all zero.
+    /// If the input contains only zero digits, this is zero. Otherwise, the
+    /// least significant bit is never zero.
     pub mantissa: u64,
 
-    /// The power of 16 by which `mantissa` should be divided.
-    ///
-    /// Another way to look at this is that it is the smallest number of hex
-    /// digits following the hexadecimal point with which we could represent the
-    /// value.
-    ///
-    /// If the input contains only zero digits, this is zero.
-    pub exponent_16: u32,
+    /// The power of two by which `mantissa` should be multiplied. Zero or
+    /// negative. If `mantissa` is zero, this is also zero.
+    pub exponent: i32,
 
-    /// The number of trailing zeros not included in `mantissa` or `exponent_16`.
-    ///
-    /// As trailing zeros are pushed, we increase this without affecting the
-    /// rest of the value.
-    ///
-    /// This is zero when no digits have been pushed.
-    pub trailing_zeros: u32,
+    /// The exponent of the power of two by which the most recently pushed
+    /// digit was occupied. Initially zero.
+    pub last_digit_exponent: i32,
 
-    /// True if `mantissa` and `exponent_16` accurately capture all
+    /// True if `mantissa` and `exponent` accurately capture all
     /// digits that were present in the input.
     pub exact: bool,
 }
@@ -68,73 +74,126 @@ impl Fraction {
     pub fn zero() -> Fraction {
         Fraction {
             mantissa: 0,
-            exponent_16: 0,
-            trailing_zeros: 0,
+            exponent: 0,
+            last_digit_exponent: 0,
             exact: true,
         }
     }
 
-    /// Return the `Fraction` value representing `mantissa / (16.powi(exponent))`.
+    /// Return the `Fraction` value representing `mantissa * 2**exponent)`.
     ///
-    /// Assume that subsequent digits pushed onto `self` should be placed as if
-    /// `exponent` digits have already been pushed.
-    pub fn with_exponent(mantissa: u64, exponent_16: u32) -> Fraction {
+    /// The resulting value must be less than one. This means that `exponent` is
+    /// zero or negative, and `mantissa` must be less than `2**(-exponent)`.
+    /// 
+    /// The next digit pushed will be placed just to the right of where
+    /// `exponent` places `mantissa`. For this to make much sense as a string of
+    /// hex digits, you should pass a multiple of four for `mantissa`.
+    ///
+    /// ```
+    /// # use hex_float::Fraction;
+    /// let mut f = Fraction::with_exponent(0x100, -20);
+    /// f.push_hex_digit(0xf);
+    /// assert_eq!(f, Fraction::with_exponent(0x100f, -24));
+    /// ```
+    pub fn with_exponent(mantissa: u64, exponent: i32) -> Fraction {
+        assert!(mantissa == 0 || exponent < 0);
+
         if mantissa == 0 {
             return Fraction {
                 mantissa: 0,
-                exponent_16: 0,
-                trailing_zeros: exponent_16,
+                exponent: 0,
+                last_digit_exponent: exponent,
                 exact: true,
             }
         }
 
-        // To maintain our invariant that the bottom nibble of `mantissa` is
-        // always non-zero, we need to move any trailing zeros from `mantissa`
-        // into `trailing_zeros`.
-        let trailing_zeros = mantissa.trailing_zeros() / 4;
+        let trailing_zeros = mantissa.trailing_zeros() as i32;
 
         Fraction {
-            mantissa: mantissa >> (trailing_zeros * 4),
-            exponent_16: exponent_16 - trailing_zeros,
-            trailing_zeros,
+            mantissa: mantissa >> trailing_zeros,
+            exponent: exponent + trailing_zeros,
+            last_digit_exponent: exponent,
             exact: true,
         }
     }
 
     /// Add a hexadecimal digit whose numeric value is `digit` to the right end
     /// of `self`.
-    pub fn push_hex_digit(&mut self, digit: u32) {
+    pub fn push_hex_digit(&mut self, mut digit: u32) {
         assert!(digit < 16);
 
-        // A new trailing zero affects neither the value nor the exactness.
+        let Fraction {
+            mantissa,
+            exponent,
+            ..
+        } = *self;
+
+        // Advance `last_digit_exponent` to this digit's exponent.
+        self.last_digit_exponent = self.last_digit_exponent.checked_sub(4).unwrap();
+
         if digit == 0 {
-            self.trailing_zeros = self.trailing_zeros.checked_add(1).unwrap();
             return;
         }
 
-        // Shift `mantissa` to make room for the new digit, making any prior
-        // trailing zeros explicit, and checking for bit loss.
-        let shift_digits = self.trailing_zeros.checked_add(1).unwrap();
-        let Some(mantissa) = shl_exact(self.mantissa, shift_digits.checked_mul(4).unwrap()) else {
-            // The shift would lose bits, so we can't fit `digit` exactly.
-            self.exact = false;
-            // Count this non-zero digit as if we had added a trailing zero
-            // instead. This isn't necessary, but it seems less confusing to at
-            // least keep the place value of the next digit accurate.
-            self.trailing_zeros = self.trailing_zeros.checked_add(1).unwrap();
+        let trailing_zeros = digit.trailing_zeros();
+
+        // When the mantissa is zero, there's no need to shift it, so we can
+        // always incorporate the new digit without a loss of precision.
+        if mantissa == 0 {
+            self.mantissa = digit as u64 >> trailing_zeros;
+            self.exponent = self.last_digit_exponent + trailing_zeros as i32;
             return;
-        };
+        }
 
-        // Now that we've shifted the trailing zeros into `mantissa`, take them
-        // off the books.
-        self.trailing_zeros = 0;
+        // How much space do we have in the mantissa for more precision?
+        let max_shift = self.mantissa.leading_zeros();
+        
+        // The new digit always lands to the right of where the mantissa is
+        // landing now. Compute the distance between those locations, which is
+        // always positive.
+        assert!(exponent >= self.last_digit_exponent);
+        let gap = (exponent - self.last_digit_exponent) as u32;
 
-        // Adjust the exponent to balance out the shift applied to the mantissa,
-        // so that all extant digits retain their original place value.
-        self.exponent_16 = self.exponent_16.checked_add(shift_digits).unwrap();
+        // How many bits would we need to shift in to `mantissa` to represent
+        // the new digit exactly? Trailing zeros in the new digit must not go in
+        // `mantissa`.
+        //
+        // Note that this assumes `digit` is non-zero, which we ensured above.
+        let exact_shift = gap - trailing_zeros;
 
-        // Incorporate `digit` into the mantissa.
-        self.mantissa = mantissa | digit as u64;
+        // Handle the common case where we have room to incorporate `digit` exactly.
+        if exact_shift <= max_shift {
+            self.mantissa = mantissa << exact_shift | (digit >> trailing_zeros) as u64;
+            self.exponent = exponent.checked_sub(exact_shift as i32).unwrap();
+            return;
+        }
+
+        // Pity.
+        self.exact = false;
+
+        // Adjust the value of the digit as necessary.
+        let bits_to_drop = exact_shift - max_shift;
+        if bits_to_drop < 4 {
+            digit = digit & !((1 << bits_to_drop) - 1);
+        } else {
+            digit = 0;
+        }
+
+        // The digit may have become zero, so we must repeat the earlier check.
+        if digit == 0 {
+            return;
+        }
+        
+        // We need to recompute the shift, as losing the bottom bits may have
+        // exposed more trailing zeros (rounding 9 to 8, say). But this time the
+        // required shift always ought to fit --- otherwise we would have zeroed
+        // out `digit` entirely above, and returned early.
+        let trailing_zeros = digit.trailing_zeros();
+        let shift = gap - trailing_zeros;
+        debug_assert!(shift <= max_shift);
+
+        self.mantissa = mantissa << shift | (digit >> trailing_zeros) as u64;
+        self.exponent = exponent.checked_sub(exact_shift as i32).unwrap();
     }
 
     /// Push all hexadecimal digits at the start of `digits` onto `self`.
@@ -178,8 +237,8 @@ fn consume_hex_digits() {
         f,
         Fraction {
             mantissa: 0xf,
-            exponent_16: 1,
-            trailing_zeros: 0,
+            exponent: -4,
+            last_digit_exponent: -4,
             exact: true,
         }
     );
@@ -192,8 +251,8 @@ fn from_str() {
         Fraction::from_str("0"),
         Ok(Fraction {
             mantissa: 0,
-            exponent_16: 0,
-            trailing_zeros: 1,
+            exponent: 0,
+            last_digit_exponent: -4,
             exact: true,
         })
     );
@@ -201,8 +260,8 @@ fn from_str() {
         Fraction::from_str("00"),
         Ok(Fraction {
             mantissa: 0,
-            exponent_16: 0,
-            trailing_zeros: 2,
+            exponent: 0,
+            last_digit_exponent: -8,
             exact: true,
         })
     );
@@ -210,8 +269,8 @@ fn from_str() {
         Fraction::from_str("0000000000000000000000000000000000000000"),
         Ok(Fraction {
             mantissa: 0,
-            exponent_16: 0,
-            trailing_zeros: 40,
+            exponent: 0,
+            last_digit_exponent: 40 * -4,
             exact: true,
         })
     );
@@ -219,8 +278,8 @@ fn from_str() {
         Fraction::from_str("00000000000000000000000000000000000000001"),
         Ok(Fraction {
             mantissa: 1,
-            exponent_16: 41,
-            trailing_zeros: 0,
+            exponent: 41 * -4,
+            last_digit_exponent: 41 * -4,
             exact: true,
         })
     );
@@ -228,8 +287,8 @@ fn from_str() {
         Fraction::from_str("0000000000000000f"),
         Ok(Fraction {
             mantissa: 0xf,
-            exponent_16: 17,
-            trailing_zeros: 0,
+            exponent: (16 + 1) * -4, 
+            last_digit_exponent: (16 + 1) * -4, 
             exact: true,
         })
     );
@@ -237,8 +296,8 @@ fn from_str() {
         Fraction::from_str("0000000000000000f000000000000000"),
         Ok(Fraction {
             mantissa: 0xf,
-            exponent_16: 17,
-            trailing_zeros: 15,
+            exponent: (16 + 1) * -4,
+            last_digit_exponent: (16 + 1 + 15) * -4,
             exact: true,
         })
     );
@@ -246,8 +305,8 @@ fn from_str() {
         Fraction::from_str("0000000000000000f000000000000001"),
         Ok(Fraction {
             mantissa: 0xf000000000000001,
-            exponent_16: 32,
-            trailing_zeros: 0,
+            exponent: (16 + 1 + 14 + 1) * -4,
+            last_digit_exponent: (16 + 1 + 14 + 1) * -4,
             exact: true,
         })
     );
@@ -255,8 +314,8 @@ fn from_str() {
         Fraction::from_str("0000000000000000f0000000000000001"),
         Ok(Fraction {
             mantissa: 0xf,
-            exponent_16: 17,
-            trailing_zeros: 16,
+            exponent: (16 + 1) * -4,
+            last_digit_exponent: (16 + 1 + 15 + 1) * -4,
             exact: false,
         })
     );
@@ -264,8 +323,17 @@ fn from_str() {
         Fraction::from_str("0000000000000000000012300000000000000000000"),
         Ok(Fraction {
             mantissa: 0x123,
-            exponent_16: 23,
-            trailing_zeros: 20,
+            exponent: (20 + 3) * -4,
+            last_digit_exponent: (20 + 3 + 20) * -4,
+            exact: true,
+        })
+    );
+    assert_eq!(
+        Fraction::from_str("3000000000000000c"),
+        Ok(Fraction {
+            mantissa: 0xc000000000000003,
+            exponent: 16 * -4 - 2,
+            last_digit_exponent: (16 + 1) * -4,
             exact: true,
         })
     );
@@ -275,26 +343,26 @@ fn from_str() {
 fn with_exponent() {
     assert_eq!(
         Fraction::with_exponent(0, 0),
-        Fraction { mantissa: 0, exponent_16: 0, trailing_zeros: 0, exact: true }
+        Fraction { mantissa: 0, exponent: 0, last_digit_exponent: 0, exact: true }
     );
     assert_eq!(
-        Fraction::with_exponent(0, 20),
-        Fraction { mantissa: 0, exponent_16: 0, trailing_zeros: 20, exact: true }
+        Fraction::with_exponent(0, -20),
+        Fraction { mantissa: 0, exponent: 0, last_digit_exponent: -20, exact: true }
     );
     assert_eq!(
-        Fraction::with_exponent(0x1, 20),
-        Fraction { mantissa: 0x1, exponent_16: 20, trailing_zeros: 0, exact: true }
+        Fraction::with_exponent(0x1, -20),
+        Fraction { mantissa: 0x1, exponent: -20, last_digit_exponent: -20, exact: true }
     );
     assert_eq!(
-        Fraction::with_exponent(0x10000, 20),
-        Fraction { mantissa: 0x1, exponent_16: 16, trailing_zeros: 4, exact: true }
+        Fraction::with_exponent(0x100, -20),
+        Fraction { mantissa: 0x1, exponent: -12, last_digit_exponent: -20, exact: true }
     );
     assert_eq!(
-        Fraction::with_exponent(0x1000000000000001, 30),
-        Fraction { mantissa: 0x1000000000000001, exponent_16: 30, trailing_zeros: 0, exact: true }
+        Fraction::with_exponent(0x1000000000000001, -64),
+        Fraction { mantissa: 0x1000000000000001, exponent: -64, last_digit_exponent: -64, exact: true }
     );
     assert_eq!(
-        Fraction::with_exponent(0x1000000010000000, 30),
-        Fraction { mantissa: 0x100000001, exponent_16: 23, trailing_zeros: 7, exact: true }
+        Fraction::with_exponent(0x1000000010000000, -64),
+        Fraction { mantissa: 0x100000001, exponent: -64 + 7 * 4, last_digit_exponent: -64, exact: true }
     );
 }
