@@ -44,13 +44,12 @@ properly fold leading and trailing zeros into the exponent, and so on.
 
 */
 
+mod construct;
 mod format;
-mod fraction;
 mod parts;
+mod push_fractional;
+mod push_whole;
 pub mod wgsl;
-mod whole;
 
 pub use format::BinaryFormat;
-pub use fraction::Fraction;
 pub use parts::{Parts, PartFlags};
-pub use whole::Whole;

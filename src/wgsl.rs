@@ -42,7 +42,7 @@ absent.
 
 */
 
-use crate::{Fraction, PartFlags, Parts, Whole};
+use crate::{PartFlags, Parts};
 
 /// Parse `input` as a WGSL hexadecimal floating-point or integer literal.
 ///
@@ -126,63 +126,50 @@ pub const INT_PARTS: PartFlags = PartFlags::PREFIX
 pub fn parse_with_options(mut input: &str, allow: PartFlags) -> Result<(Parts<Suffix>, &str), Error> {
     assert!(allow.contains(PartFlags::FRACTION) == allow.contains(PartFlags::POINT),
             "If `allow' contains `FRACTION`, it must also contain `POINT`, and vice versa");
-    let mut present = PartFlags::empty();
+    let mut result = Parts::<Suffix>::new();
 
     // Parse a sign.
-    let sign;
-    if !allow.contains(PartFlags::SIGN) {
-        sign = 1;
-    } else {
+    if allow.contains(PartFlags::SIGN) {
         if let Some(present_sign) = parse_sign(&mut input) {
-            present.insert(PartFlags::SIGN);
-            sign = present_sign;
+            result.present.insert(PartFlags::SIGN);
+            result.sign = present_sign;
         } else {
-            sign = 1;
+            result.sign = 1;
         }
     };
 
     // Parse a prefix.
     if allow.contains(PartFlags::PREFIX) {
         if let Some(rest) = input.strip_prefix("0x").or_else(|| input.strip_prefix("0X")) {
-            present.insert(PartFlags::PREFIX);
+            result.present.insert(PartFlags::PREFIX);
             input = rest;
         }
     }
 
     // Parse a whole number portion.
-    let mut whole = Whole::zero();
     if allow.contains(PartFlags::WHOLE) {
-        let rest = whole.consume_hex_digits(input);
-        if rest.len() < input.len() {
-            present.insert(PartFlags::WHOLE);
-            input = rest;
-        }
+        input = result.consume_whole_digits(input);
     }
 
     // Parse a fractional portion.
-    let mut fraction = Fraction::zero();
     if allow.contains(PartFlags::POINT) {
         if let Some(after_point) = input.strip_prefix('.') {
-            present.insert(PartFlags::POINT);
+            result.present.insert(PartFlags::POINT);
             // We asserted that `FRACTION` is also allowed.
-            let rest = fraction.consume_hex_digits(after_point);
-            if rest.len() < after_point.len() {
-                present.insert(PartFlags::FRACTION);
-            }
-            input = rest;
+            input = result.consume_fractional_digits(after_point);
         }
     }
 
     // Parse an exponent.
-    let mut exponent: i32 = 0;
     if allow.contains(PartFlags::EXPONENT) {
         if let Some(rest) = input.strip_prefix(&['p', 'P'][..]) {
             input = rest;
             let exponent_sign = parse_sign(&mut input).unwrap_or(1);
+            let mut exponent: i32 = 0;
             let mut chars = input.chars();
             while let Some(digit) = chars.next().and_then(|ch| ch.to_digit(10)) {
                 input = chars.as_str();
-                present.insert(PartFlags::EXPONENT);
+                result.present.insert(PartFlags::EXPONENT);
                 // To handle `i32::MIN` correctly, multiply the sign into each
                 // digit as we incorporate it, rather than doing the multiply
                 // once at the end. The code is simpler this way, and multiplies
@@ -195,39 +182,31 @@ pub fn parse_with_options(mut input: &str, allow: PartFlags) -> Result<(Parts<Su
                     .and_then(|exponent| exponent.checked_add(digit as i32 * exponent_sign))
                     .ok_or(Error::ExponentOverflow)?;
             }
-            if !present.contains(PartFlags::EXPONENT) {
+            if !result.present.contains(PartFlags::EXPONENT) {
                 return Err(Error::ExponentMissingDigits);
             }
+            result.explicit_exponent = exponent;
         }
     }
 
     // Parse a type suffix. This is only allowed if no decimal point is present,
     // or if the exponent is present, as `f` would otherwise be treated as a
     // hexadecimal digit.
-    let mut suffix = None;
-    if !present.contains(PartFlags::POINT) || present.contains(PartFlags::EXPONENT) {
+    if !result.present.contains(PartFlags::POINT) || result.present.contains(PartFlags::EXPONENT) {
         let mut chars = input.chars();
-        suffix = match chars.next() {
+        result.suffix = match chars.next() {
             Some('u') => Some(Suffix::U32),
             Some('i') => Some(Suffix::I32),
             Some('h') => Some(Suffix::F16),
             Some('f') => Some(Suffix::F32),
             _ => None,
         };
-        if suffix.is_some() {
+        if result.suffix.is_some() {
             input = chars.as_str();
         }
     }
 
-    let parts = Parts {
-        present,
-        sign,
-        whole,
-        fraction,
-        exponent,
-        suffix,
-    };
-    Ok((parts, input))
+    Ok((result, input))
 }
 
 fn parse_sign(input: &mut &str) -> Option<i32> {
@@ -286,9 +265,11 @@ fn spec_examples() {
             Parts { 
                 present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION | Pf::EXPONENT,
                 sign: 1,
-                whole: Whole::new(0xa),
-                fraction: Fraction::with_exponent(0xf, -4),
-                exponent: 2,
+                mantissa: 0xaf,
+                exponent: -4,
+                last_digit_exponent: -4,
+                explicit_exponent: 2,
+                exact: true,
                 suffix: None
             },
             " "
@@ -301,9 +282,11 @@ fn spec_examples() {
             Parts { 
                 present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT,
                 sign: 1,
-                whole: Whole::new(0x1),
-                fraction: Fraction::zero(),
-                exponent: 4,
+                mantissa: 0x1,
+                exponent: 0,
+                last_digit_exponent: 0,
+                explicit_exponent: 4,
+                exact: true,
                 suffix: Some(Suffix::F32),
             },
             " "
@@ -316,9 +299,11 @@ fn spec_examples() {
             Parts {
                 present: Pf::PREFIX | Pf::POINT | Pf::FRACTION,
                 sign: 1,
-                whole: Whole::zero(),
-                fraction: Fraction::with_exponent(0x3, -4),
-                exponent: 0,
+                mantissa: 0x3,
+                exponent: -4,
+                last_digit_exponent: -4,
+                explicit_exponent: 0,
+                exact: true,
                 suffix: None,
             },
             "."
@@ -331,9 +316,11 @@ fn spec_examples() {
             Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT,
                 sign: 1,
-                whole: Whole::new(0x3),
-                fraction: Fraction::zero(),
-                exponent: 2,
+                mantissa: 0x3,
+                exponent: 0,
+                last_digit_exponent: 0,
+                explicit_exponent: 2,
+                exact: true,
                 suffix: Some(Suffix::F16),
             },
             "0"
@@ -346,9 +333,11 @@ fn spec_examples() {
             Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION | Pf::EXPONENT,
                 sign: 1,
-                whole: Whole::new(0x1),
-                fraction: Fraction::with_exponent(0xf, -4),
+                mantissa: 0x1f,
                 exponent: -4,
+                last_digit_exponent: -4,
+                explicit_exponent: -4,
+                exact: true,
                 suffix: None,
             },
             "-"
@@ -361,9 +350,11 @@ fn spec_examples() {
             Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION | Pf::EXPONENT,
                 sign: 1,
-                whole: Whole::new(0x3),
-                fraction: Fraction::with_exponent(0x2, -4),
-                exponent: 2,
+                mantissa: 0x19,
+                exponent: -3,
+                last_digit_exponent: -4,
+                explicit_exponent: 2,
+                exact: true,
                 suffix: Some(Suffix::F16),
             },
             "x"
@@ -381,9 +372,11 @@ fn type_suffix() {
             Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION,
                 sign: 1,
-                whole: Whole::new(0x1),
-                fraction: Fraction::with_exponent(0x0f, -8),
-                exponent: 0,
+                mantissa: 0x10f,
+                exponent: -8,
+                last_digit_exponent: -8,
+                explicit_exponent: 0,
+                exact: true,
                 suffix: None,
             },
             " "
@@ -396,14 +389,11 @@ fn type_suffix() {
             Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION,
                 sign: 1,
-                whole: Whole::new(0x1),
-                fraction: Fraction { 
-                    mantissa: 0,
-                    exponent: 0,
-                    last_digit_exponent: -4,
-                    exact: true,
-                },
+                mantissa: 0x1,
                 exponent: 0,
+                last_digit_exponent: -4,
+                explicit_exponent: 0,
+                exact: true,
                 suffix: None,
             },
             "u"
@@ -420,9 +410,11 @@ fn exponent_overflow() {
             Parts { 
                 present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT,
                 sign: 1,
-                whole: Whole::new(0x1),
-                fraction: Fraction::zero(),
-                exponent: 2147483647,
+                mantissa: 0x1,
+                exponent: 0,
+                last_digit_exponent: 0,
+                explicit_exponent: 2147483647,
+                exact: true,
                 suffix: None
             },
             ""
@@ -436,9 +428,11 @@ fn exponent_overflow() {
             Parts { 
                 present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT,
                 sign: 1,
-                whole: Whole::new(0x1),
-                fraction: Fraction::zero(),
-                exponent: -2147483648,
+                mantissa: 0x1,
+                exponent: 0,
+                last_digit_exponent: 0,
+                explicit_exponent: -2147483648,
+                exact: true,
                 suffix: None
             },
             ""
