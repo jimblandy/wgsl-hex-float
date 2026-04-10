@@ -52,5 +52,6 @@ mod push_fractional;
 mod push_whole;
 pub mod wgsl;
 
+pub use assemble::Assembled;
 pub use format::BinaryFormat;
 pub use parts::{PartFlags, Parts};

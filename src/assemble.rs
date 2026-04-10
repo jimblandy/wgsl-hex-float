@@ -47,8 +47,9 @@ impl<S> Parts<S> {
         // right shift.
         mantissa = mantissa << T::MANTISSA_WIDTH + 1 - significant_bits;
 
-        // Mask off the implicit leading `1` bit.
-        mantissa &= !(1 << T::MANTISSA_WIDTH + 1);
+        // Mask off the leading `1` bit, that will be implicit in `T`.
+        assert!(mantissa & (1 << T::MANTISSA_WIDTH) != 0);
+        mantissa &= !(1 << T::MANTISSA_WIDTH);
 
         let biased_exponent = normal_exponent + T::EXPONENT_BIAS;
         assert!(biased_exponent >= 1);
@@ -81,6 +82,7 @@ impl<S> Parts<S> {
 }
 
 /// The result of assembling a hexadecimal literal value.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Assembled<T> {
     /// The input can be represented exactly as the given value.
     Exact(T),

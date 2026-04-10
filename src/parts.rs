@@ -67,8 +67,8 @@
 /// construct the corresponding Rust value:
 ///
 /// ```
-/// # use hex_float::Parts;
-/// let mut p = Parts::new();
+/// # use hex_float::{Assembled, Parts};
+/// let mut p = Parts::<()>::new();
 /// p.push_whole_digit(0xa);
 /// p.push_whole_digit(0xb);
 ///
@@ -86,7 +86,7 @@
 ///     }
 /// ));
 ///
-/// assert_eq!(p.to_float::<f32>(), Assembled::Exact(0xabcd0 as f32 / 64.0));
+/// assert_eq!(p.to_float::<f32>(), Assembled::Exact(0xabcd0 as f32 / 4096.0));
 /// ```
 ///
 /// Once you've pushed a fractional digit onto a `Parts` value, you may not push
