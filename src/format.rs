@@ -80,7 +80,13 @@ pub trait BinaryFormat: Sized {
     /// In principle, many different biases would work, but IEEE formats all
     /// choose this to be half the largest value the exponent field can hold,
     /// rounded down.
-    const EXPONENT_BIAS: u32 = (1 << (Self::EXPONENT_WIDTH - 1)) - 1;
+    const EXPONENT_BIAS: i32 = (1 << Self::EXPONENT_WIDTH - 1) - 1;
+
+    /// The minimum unbiased exponent a normal, non-infinite `Self` value can have.
+    const MIN_NORMAL_EXP: i32 = 1 - Self::EXPONENT_BIAS;
+
+    /// The maximum unbiased exponent a normal, non-infinite `Self` value can have.
+    const MAX_NORMAL_EXP: i32 = (1 << Self::EXPONENT_WIDTH) - 1 - Self::EXPONENT_BIAS;
 
     /// Construct a `Self` floating-point value, given explicit values for its fields.
     ///
@@ -105,10 +111,12 @@ pub trait BinaryFormat: Sized {
     // the disease. This function is perfectly straightforward to implement
     // directly.
     fn from_bitfields(sign: u32, exponent_bits: u32, mantissa_bits: u64) -> Self;
+
+    fn infinity(negative: bool) -> Self;
 }
 
 impl BinaryFormat for f32 {
-    const MANTISSA_WIDTH: u32 = f32::MANTISSA_DIGITS - 1;
+    const MANTISSA_WIDTH: u32 = 23;
 
     fn from_bitfields(sign: u32, exponent_bits: u32, mantissa_bits: u64) -> Self {
         assert!(sign <= 1);
@@ -119,10 +127,18 @@ impl BinaryFormat for f32 {
             sign << Self::SIGN_SHIFT | exponent_bits << Self::MANTISSA_WIDTH | mantissa_bits as u32;
         f32::from_bits(bits)
     }
+
+    fn infinity(negative: bool) -> Self {
+        if negative {
+            Self::NEG_INFINITY
+        } else {
+            Self::INFINITY
+        }
+    }
 }
 
 impl BinaryFormat for f64 {
-    const MANTISSA_WIDTH: u32 = f64::MANTISSA_DIGITS - 1;
+    const MANTISSA_WIDTH: u32 = 52;
 
     fn from_bitfields(sign: u32, exponent_bits: u32, mantissa_bits: u64) -> Self {
         assert!(sign <= 1);
@@ -133,6 +149,14 @@ impl BinaryFormat for f64 {
             | (exponent_bits as u64) << Self::MANTISSA_WIDTH
             | mantissa_bits;
         f64::from_bits(bits)
+    }
+
+    fn infinity(negative: bool) -> Self {
+        if negative {
+            Self::NEG_INFINITY
+        } else {
+            Self::INFINITY
+        }
     }
 }
 

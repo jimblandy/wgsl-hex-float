@@ -10,7 +10,7 @@ impl<S> Parts<S> {
     /// - has sign, exponent, and mantissa representing positive zero;
     /// - is ready to accept digits from the whole number portion of the literal; and
     /// - has no type suffix.
-    pub fn new() -> Parts<S> {
+    pub const fn new() -> Parts<S> {
         Parts {
             present: PartFlags::empty(),
             sign: 1,
@@ -33,12 +33,12 @@ impl<S> Parts<S> {
     /// # use hex_float::{Parts, PartFlags};
     /// let mut f: Parts<()> = Parts::with_exponent(0x100, -20);
     /// f.push_fractional_digit(0xf);
-    /// 
+    ///
     /// let mut explicit = Parts::with_exponent(0x100f, -24);
     /// explicit.present = PartFlags::FRACTION;
     /// assert_eq!(f, explicit);
     /// ```
-    pub fn with_exponent(mantissa: u64, exponent: i32) -> Self {
+    pub const fn with_exponent(mantissa: u64, exponent: i32) -> Self {
         assert!(mantissa != 0 || exponent == 0);
 
         let mut parts = Parts::new();

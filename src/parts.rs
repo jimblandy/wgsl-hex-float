@@ -1,17 +1,11 @@
-/*! Types representing parsed literals, ready to turn into a Rust value.
-
-The main type of interest here is [`Parts`].
-
-*/
-
-use crate::BinaryFormat;
+/*! Definition of [`Parts`]. */
 
 /// A hexadecimal literal in the process of being parsed.
 ///
 /// This struct represents a hexadecimal numeric literal, either integral or
-/// floating-point, that is in the midst of being parsed. Once it is fully
-/// initialized, it can be converted into a Rust value via the [`to_float`] and
-/// [`to_int`] methods.
+/// floating-point, that is in the midst of being parsed. Once a `Parts` value
+/// is fully initialized, it can be converted into a Rust value via the
+/// [`to_float`] and [`to_int`] methods.
 ///
 /// For example:
 ///
@@ -159,6 +153,10 @@ pub struct Parts<S> {
     pub suffix: Option<S>,
 }
 
+impl<S> Parts<S> {
+    pub const MANTISSA_BITS: u32 = std::mem::size_of_val(&Parts::<()>::new().mantissa) as u32 * 8;
+}
+
 bitflags::bitflags! {
     /// The parts that a hexadecimal floating point literal might have.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -176,43 +174,10 @@ bitflags::bitflags! {
         /// A hexadecimal point, introducing the fractional digits.
         const POINT = 1 << 3;
 
-        /// One or more fractional digits, preceded by a hexadecimal point. 
+        /// One or more fractional digits, preceded by a hexadecimal point.
         const FRACTION = 1 << 4;
 
         /// An exponent, introduced by a `'p'` or `'P'` character.
         const EXPONENT = 1 << 5;
     }
-}
-
-impl<S> Parts<S> {
-    pub fn to_float<T: BinaryFormat>(&self) -> Result<Assembled<T>, Error> {
-        todo!()
-    }
-}
-
-/// The result of assembling a hexadecimal literal value.
-pub enum Assembled<T> {
-    /// The input can be represented exactly as the given value.
-    Exact(T),
-
-    /// The input value cannot be represented exactly in the given type,
-    /// but can be represented with rounding as the given value.
-    Rounded(T),
-
-    /// The input overflowed, and is represented as the given infinity.
-    Infinity(T),
-}
-
-impl<T> Assembled<T> {
-    pub fn get(self) -> T {
-        match self {
-            Self::Exact(v) => v,
-            Self::Rounded(v) => v,
-            Self::Infinity(v) => v,
-        }
-    }
-}
-
-#[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
-pub enum Error {
 }

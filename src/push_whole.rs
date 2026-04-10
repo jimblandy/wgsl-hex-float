@@ -12,14 +12,16 @@ impl<S> Parts<S> {
     ///
     /// This adds [`WHOLE`] to [`present`].
     ///
-    /// Once you've pushed fractional digits onto a `Parts`, you may no longer 
+    /// Once you've pushed fractional digits onto a `Parts`, you may no longer
     ///
     /// [`WHOLE`]: PartFlags::WHOLE
     /// [`present`]: Self::present
     pub fn push_whole_digit(&mut self, mut digit: u32) {
         assert!(digit < 16);
-        assert!(self.exponent >= 0 && self.last_digit_exponent == 0,
-                "Cannot push whole-number digits after fractional digits have been pushed");
+        assert!(
+            self.exponent >= 0 && self.last_digit_exponent == 0,
+            "Cannot push whole-number digits after fractional digits have been pushed"
+        );
 
         // Note that at least one fractional digit was present.
         self.present.insert(PartFlags::WHOLE);
@@ -47,7 +49,7 @@ impl<S> Parts<S> {
             self.exponent = trailing_zeros;
             return;
         }
-        
+
         // Oh well.
         self.exact = false;
 
@@ -89,7 +91,7 @@ impl<S> Parts<S> {
 
         digits
     }
-    
+
     pub fn from_whole_str(digits: &str) -> Result<Self, core::num::IntErrorKind> {
         let mut w = Parts::new();
         let rest = w.consume_whole_digits(digits);

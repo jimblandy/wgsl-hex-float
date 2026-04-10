@@ -61,7 +61,10 @@ pub fn parse(input: &str) -> Result<(Parts<Suffix>, &str), Error> {
     match parts.suffix {
         None => {
             // There have to be some mantissa digits present somewhere.
-            if !parts.present.intersects(PartFlags::WHOLE | PartFlags::FRACTION) {
+            if !parts
+                .present
+                .intersects(PartFlags::WHOLE | PartFlags::FRACTION)
+            {
                 return Err(Error::MissingWholeAndFraction);
             }
         }
@@ -75,7 +78,10 @@ pub fn parse(input: &str) -> Result<(Parts<Suffix>, &str), Error> {
             assert!(!parts.present.contains(PartFlags::FRACTION));
         }
         Some(Suffix::F16 | Suffix::F32) => {
-            if !parts.present.intersects(PartFlags::WHOLE | PartFlags::FRACTION) {
+            if !parts
+                .present
+                .intersects(PartFlags::WHOLE | PartFlags::FRACTION)
+            {
                 return Err(Error::MissingWholeAndFraction);
             }
             // Since there was a type suffix, there must have been an exponent,
@@ -94,8 +100,7 @@ pub const FLOAT_OR_INT_PARTS: PartFlags = PartFlags::PREFIX
     .union(PartFlags::EXPONENT);
 
 /// Parts that may be present in a WGSL hexadecimal integer literal.
-pub const INT_PARTS: PartFlags = PartFlags::PREFIX
-    .union(PartFlags::WHOLE);
+pub const INT_PARTS: PartFlags = PartFlags::PREFIX.union(PartFlags::WHOLE);
 
 /// Parse `input` as a WGSL hexadecimal floating-point or integer literal.
 ///
@@ -123,9 +128,14 @@ pub const INT_PARTS: PartFlags = PartFlags::PREFIX
 /// [`SIGN`]: PartFlags::SIGN
 /// [`PREFIX`]: PartFlags::PREFIX_ALLOWED
 /// [`present`]: Parts::present
-pub fn parse_with_options(mut input: &str, allow: PartFlags) -> Result<(Parts<Suffix>, &str), Error> {
-    assert!(allow.contains(PartFlags::FRACTION) == allow.contains(PartFlags::POINT),
-            "If `allow' contains `FRACTION`, it must also contain `POINT`, and vice versa");
+pub fn parse_with_options(
+    mut input: &str,
+    allow: PartFlags,
+) -> Result<(Parts<Suffix>, &str), Error> {
+    assert!(
+        allow.contains(PartFlags::FRACTION) == allow.contains(PartFlags::POINT),
+        "If `allow' contains `FRACTION`, it must also contain `POINT`, and vice versa"
+    );
     let mut result = Parts::<Suffix>::new();
 
     // Parse a sign.
@@ -140,7 +150,10 @@ pub fn parse_with_options(mut input: &str, allow: PartFlags) -> Result<(Parts<Su
 
     // Parse a prefix.
     if allow.contains(PartFlags::PREFIX) {
-        if let Some(rest) = input.strip_prefix("0x").or_else(|| input.strip_prefix("0X")) {
+        if let Some(rest) = input
+            .strip_prefix("0x")
+            .or_else(|| input.strip_prefix("0X"))
+        {
             result.present.insert(PartFlags::PREFIX);
             input = rest;
         }
@@ -262,7 +275,7 @@ fn spec_examples() {
     assert_eq!(
         parse("0xa.fp+2 "),
         Ok((
-            Parts { 
+            Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION | Pf::EXPONENT,
                 sign: 1,
                 mantissa: 0xaf,
@@ -275,11 +288,11 @@ fn spec_examples() {
             " "
         ))
     );
-               
+
     assert_eq!(
         parse("0x1P+4f "),
         Ok((
-            Parts { 
+            Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT,
                 sign: 1,
                 mantissa: 0x1,
@@ -384,7 +397,7 @@ fn type_suffix() {
     );
 
     assert_eq!(
-        parse("0x1.0u"), 
+        parse("0x1.0u"),
         Ok((
             Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION,
@@ -407,7 +420,7 @@ fn exponent_overflow() {
     assert_eq!(
         parse("0x1p2147483647"),
         Ok((
-            Parts { 
+            Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT,
                 sign: 1,
                 mantissa: 0x1,
@@ -420,12 +433,11 @@ fn exponent_overflow() {
             ""
         )),
     );
-    assert_eq!(parse("0x1p2147483648"),
-               Err(Error::ExponentOverflow));
+    assert_eq!(parse("0x1p2147483648"), Err(Error::ExponentOverflow));
     assert_eq!(
         parse("0x1p-2147483648"),
         Ok((
-            Parts { 
+            Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT,
                 sign: 1,
                 mantissa: 0x1,
@@ -438,8 +450,7 @@ fn exponent_overflow() {
             ""
         )),
     );
-    assert_eq!(parse("0x1p-2147483649"),
-               Err(Error::ExponentOverflow));
+    assert_eq!(parse("0x1p-2147483649"), Err(Error::ExponentOverflow));
 }
 
 #[test]

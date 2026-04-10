@@ -34,9 +34,7 @@ impl<S> Parts<S> {
         }
 
         let Parts {
-            mantissa,
-            exponent,
-            ..
+            mantissa, exponent, ..
         } = *self;
 
         let trailing_zeros = digit.trailing_zeros();
@@ -69,7 +67,7 @@ impl<S> Parts<S> {
 
         // How much space do we actually have in the mantissa for more precision?
         let max_shift = self.mantissa.leading_zeros();
-        
+
         // Handle the common case where we can incorporate `digit` exactly.
         if new_digit_shift <= max_shift {
             self.mantissa = mantissa << new_digit_shift | (digit >> trailing_zeros) as u64;
@@ -95,7 +93,7 @@ impl<S> Parts<S> {
             self.exponent = exponent;
             return;
         }
-        
+
         let trailing_zeros = digit.trailing_zeros();
         self.exponent = self.last_digit_exponent + trailing_zeros as i32;
 
@@ -151,10 +149,7 @@ mod test {
     #[test]
     fn consume_fractional_digits() {
         let mut f = P::new();
-        assert_eq!(
-            f.consume_fractional_digits("fp+2"),
-            "p+2"
-        );
+        assert_eq!(f.consume_fractional_digits("fp+2"), "p+2");
         assert_eq!(
             f,
             P {
@@ -231,8 +226,8 @@ mod test {
                 present: PartFlags::FRACTION,
                 sign: 1,
                 mantissa: 0xf,
-                exponent: (16 + 1) * -4, 
-                last_digit_exponent: (16 + 1) * -4, 
+                exponent: (16 + 1) * -4,
+                last_digit_exponent: (16 + 1) * -4,
                 explicit_exponent: 0,
                 exact: true,
                 suffix: None,
@@ -309,23 +304,68 @@ mod test {
     fn with_exponent() {
         assert_eq!(
             P::with_exponent(0, 0),
-            P { present: PartFlags::empty(), sign: 1, mantissa: 0, exponent: 0, last_digit_exponent: 0, explicit_exponent: 0, exact: true, suffix: None }
+            P {
+                present: PartFlags::empty(),
+                sign: 1,
+                mantissa: 0,
+                exponent: 0,
+                last_digit_exponent: 0,
+                explicit_exponent: 0,
+                exact: true,
+                suffix: None
+            }
         );
         assert_eq!(
             P::with_exponent(0x1, -20),
-            P { present: PartFlags::empty(), sign: 1, mantissa: 0x1, exponent: -20, last_digit_exponent: -20, explicit_exponent: 0, exact: true, suffix: None }
+            P {
+                present: PartFlags::empty(),
+                sign: 1,
+                mantissa: 0x1,
+                exponent: -20,
+                last_digit_exponent: -20,
+                explicit_exponent: 0,
+                exact: true,
+                suffix: None
+            }
         );
         assert_eq!(
             P::with_exponent(0x100, -20),
-            P { present: PartFlags::empty(), sign: 1, mantissa: 0x1, exponent: -12, last_digit_exponent: -20, explicit_exponent: 0, exact: true, suffix: None }
+            P {
+                present: PartFlags::empty(),
+                sign: 1,
+                mantissa: 0x1,
+                exponent: -12,
+                last_digit_exponent: -20,
+                explicit_exponent: 0,
+                exact: true,
+                suffix: None
+            }
         );
         assert_eq!(
             P::with_exponent(0x1000000000000001, -64),
-            P { present: PartFlags::empty(), sign: 1, mantissa: 0x1000000000000001, exponent: -64, last_digit_exponent: -64, explicit_exponent: 0, exact: true, suffix: None }
+            P {
+                present: PartFlags::empty(),
+                sign: 1,
+                mantissa: 0x1000000000000001,
+                exponent: -64,
+                last_digit_exponent: -64,
+                explicit_exponent: 0,
+                exact: true,
+                suffix: None
+            }
         );
         assert_eq!(
             P::with_exponent(0x1000000010000000, -64),
-            P { present: PartFlags::empty(), sign: 1, mantissa: 0x100000001, exponent: -64 + 7 * 4, last_digit_exponent: -64, explicit_exponent: 0, exact: true, suffix: None }
+            P {
+                present: PartFlags::empty(),
+                sign: 1,
+                mantissa: 0x100000001,
+                exponent: -64 + 7 * 4,
+                last_digit_exponent: -64,
+                explicit_exponent: 0,
+                exact: true,
+                suffix: None
+            }
         );
     }
 }

@@ -44,6 +44,7 @@ properly fold leading and trailing zeros into the exponent, and so on.
 
 */
 
+mod assemble;
 mod construct;
 mod format;
 mod parts;
@@ -52,4 +53,4 @@ mod push_whole;
 pub mod wgsl;
 
 pub use format::BinaryFormat;
-pub use parts::{Parts, PartFlags};
+pub use parts::{PartFlags, Parts};
