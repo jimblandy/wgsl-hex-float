@@ -35,6 +35,8 @@ impl<S> Parts<S> {
             // We have too many bits to represent in the mantissa, even
             // including the implicit leading `1` bit. Drop bits off the bottom,
             // and return a rounded result.
+
+            // TODO: this should round, not truncate
             exact = false;
             mantissa = mantissa >> (significant_bits - (T::MANTISSA_WIDTH + 1));
             significant_bits = T::MANTISSA_WIDTH + 1;
@@ -48,7 +50,7 @@ impl<S> Parts<S> {
         mantissa = mantissa << T::MANTISSA_WIDTH + 1 - significant_bits;
 
         // Mask off the leading `1` bit, that will be implicit in `T`.
-        assert!(mantissa & (1 << T::MANTISSA_WIDTH) != 0);
+        debug_assert!(mantissa & (1 << T::MANTISSA_WIDTH) != 0);
         mantissa &= !(1 << T::MANTISSA_WIDTH);
 
         let biased_exponent = normal_exponent + T::EXPONENT_BIAS;
