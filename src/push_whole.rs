@@ -103,3 +103,211 @@ impl<S> Parts<S> {
         Ok(w)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    type P = Parts::<()>;
+    #[test]
+    fn push_zero_on_zero() {
+        let mut p = P::new();
+        p.push_whole_digit(0);
+        assert!(matches!(
+            p,
+            P {
+                present: PartFlags::WHOLE,
+                mantissa: 0,
+                exponent: 0,
+                last_digit_exponent: 0,
+                exact: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn push_zero_on_nonzero() {
+        let mut p = P::new();
+        p.push_whole_digit(0xf);
+        p.push_whole_digit(0);
+        assert!(matches!(
+            p,
+            P {
+                mantissa: 0xf,
+                exponent: 4,
+                last_digit_exponent: 0,
+                exact: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn push_f_on_medium_exponent() {
+        const OUTPUT: u64 = 0x1 << 24 | 0xf;
+
+        let mut p = P::new();
+        p.mantissa = 0x1;
+        p.exponent = 20;
+        p.push_whole_digit(0xf);
+        assert!(matches!(
+            p,
+            P {
+                mantissa: OUTPUT,
+                exponent: 0,
+                last_digit_exponent: 0,
+                exact: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn push_f_on_big_exponent_partially_truncated() {
+        const OUTPUT: u64 = 0x1 << 63 | 0x3;
+
+        let mut p = P::new();
+        p.mantissa = 0x1;
+        p.exponent = 61;
+        p.push_whole_digit(0xf);
+        eprintln!("p = {p:#?}");
+        assert!(matches!(
+            p,
+            P {
+                mantissa: OUTPUT,
+                exponent: 2,
+                last_digit_exponent: 0,
+                exact: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn push_f_on_big_exponent_fully_truncated() {
+        let mut p = P::new();
+        p.mantissa = 0x1;
+        p.exponent = 63;
+        p.push_whole_digit(0xf);
+        eprintln!("p = {p:#?}");
+        assert!(matches!(
+            p,
+            P {
+                mantissa: 0x1,
+                exponent: 67,
+                last_digit_exponent: 0,
+                exact: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn push_trailing_zero_2() {
+        let mut p = P::new();
+        p.push_whole_digit(0x9);
+        p.push_whole_digit(2);
+        assert!(matches!(
+            p,
+            P {
+                mantissa: 0x49,
+                exponent: 1,
+                last_digit_exponent: 0,
+                exact: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn push_trailing_zero_8() {
+        let mut p = P::new();
+        p.push_whole_digit(0x9);
+        p.push_whole_digit(8);
+        assert!(matches!(
+            p,
+            P {
+                mantissa: 0x13,
+                exponent: 3,
+                last_digit_exponent: 0,
+                exact: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn push_one_on_full_inexact() {
+        const FULL_MANTISSA: u64 = 1 << 63 | 1;
+
+        let mut p = P::new();
+        p.mantissa = FULL_MANTISSA;
+        p.push_whole_digit(1);
+        assert!(matches!(
+            p,
+            P {
+                mantissa: FULL_MANTISSA,
+                exponent: 4,
+                exact: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn push_one_on_one_bit_left_inexact() {
+        const ONE_BIT_LEFT: u64 = 1 << 62 | 1;
+
+        let mut p = P::new();
+        p.mantissa = ONE_BIT_LEFT;
+        p.push_whole_digit(1);
+        assert!(matches!(
+            p,
+            P {
+                mantissa: ONE_BIT_LEFT,
+                exponent: 4,
+                exact: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn push_eight_on_one_bit_left() {
+        const BEFORE: u64 = 1 << 62 | 1;
+        const AFTER: u64 = 1 << 63 | 3;
+
+        let mut p = P::new();
+        p.mantissa = BEFORE;
+        p.push_whole_digit(8);
+        eprintln!("p = {p:#?}");
+        assert!(matches!(
+            p,
+            P {
+                mantissa: AFTER,
+                exponent: 3,
+                exact: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn push_nine_on_one_bit_left_inexact() {
+        const BEFORE: u64 = 1 << 62 | 1;
+        const AFTER: u64 = 1 << 63 | 3;
+
+        let mut p = P::new();
+        p.mantissa = BEFORE;
+        p.push_whole_digit(9);
+        assert!(matches!(
+            p,
+            P {
+                mantissa: AFTER,
+                exponent: 3,
+                exact: false,
+                ..
+            }
+        ));
+    }
+}
