@@ -45,7 +45,6 @@ properly fold leading and trailing zeros into the exponent, and so on.
 */
 
 mod assemble;
-mod construct;
 mod format;
 mod parts;
 mod push_fractional;
