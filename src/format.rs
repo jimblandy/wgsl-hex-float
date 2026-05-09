@@ -83,10 +83,34 @@ pub trait BinaryFormat: Sized {
     const EXPONENT_BIAS: i32 = (1 << Self::EXPONENT_WIDTH - 1) - 1;
 
     /// The minimum unbiased exponent a normal, non-infinite `Self` value can have.
+    ///
+    /// How we arrived at this expression for the default value:
+    ///
+    /// The smallest value the exponent field can hold is 0, indicating a subnormal
+    /// value. So the smallest value the exponent field can have that actually
+    /// indicates a normal number is 1. Subtracting off `EXPONENT_BIAS` gives us the
+    /// smallest normal exponent `Self` can represent.
     const MIN_NORMAL_EXP: i32 = 1 - Self::EXPONENT_BIAS;
 
     /// The maximum unbiased exponent a normal, non-infinite `Self` value can have.
-    const MAX_NORMAL_EXP: i32 = (1 << Self::EXPONENT_WIDTH) - 1 - Self::EXPONENT_BIAS;
+    ///
+    /// How we arrived at this expression for the default value:
+    ///
+    /// - The largest value the exponent field can hold is `(1 << Self::EXPONENT_WIDTH) - 1`.
+    ///   This indicates an infinity or NaN.
+    ///
+    /// - So the largest value the exponent field can have that actually indicates a
+    ///   normal number is `(1 << Self::EXPONENT_WIDTH) - 2`.
+    ///
+    /// - Subtracting off `EXPONENT_BIAS` gives us the largest normal exponent `Self` can
+    ///   represent.
+    const MAX_NORMAL_EXP: i32 = (1 << Self::EXPONENT_WIDTH) - 2 - Self::EXPONENT_BIAS;
+
+    /// The positive infinity value for `Self`.
+    const INFINITY: Self;
+
+    /// The negative infinity value for `Self`.
+    const NEG_INFINITY: Self;
 
     /// Construct a `Self` floating-point value, given explicit values for its fields.
     ///
@@ -111,12 +135,12 @@ pub trait BinaryFormat: Sized {
     // the disease. This function is perfectly straightforward to implement
     // directly.
     fn from_bitfields(sign: u32, exponent_bits: u32, mantissa_bits: u64) -> Self;
-
-    fn infinity(negative: bool) -> Self;
 }
 
 impl BinaryFormat for f32 {
     const MANTISSA_WIDTH: u32 = 23;
+    const INFINITY: f32 = f32::INFINITY;
+    const NEG_INFINITY: f32 = f32::NEG_INFINITY;
 
     fn from_bitfields(sign: u32, exponent_bits: u32, mantissa_bits: u64) -> Self {
         assert!(sign <= 1);
@@ -127,18 +151,12 @@ impl BinaryFormat for f32 {
             sign << Self::SIGN_SHIFT | exponent_bits << Self::MANTISSA_WIDTH | mantissa_bits as u32;
         f32::from_bits(bits)
     }
-
-    fn infinity(negative: bool) -> Self {
-        if negative {
-            Self::NEG_INFINITY
-        } else {
-            Self::INFINITY
-        }
-    }
 }
 
 impl BinaryFormat for f64 {
     const MANTISSA_WIDTH: u32 = 52;
+    const INFINITY: f64 = f64::INFINITY;
+    const NEG_INFINITY: f64 = f64::NEG_INFINITY;
 
     fn from_bitfields(sign: u32, exponent_bits: u32, mantissa_bits: u64) -> Self {
         assert!(sign <= 1);
@@ -149,14 +167,6 @@ impl BinaryFormat for f64 {
             | (exponent_bits as u64) << Self::MANTISSA_WIDTH
             | mantissa_bits;
         f64::from_bits(bits)
-    }
-
-    fn infinity(negative: bool) -> Self {
-        if negative {
-            Self::NEG_INFINITY
-        } else {
-            Self::INFINITY
-        }
     }
 }
 

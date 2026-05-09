@@ -3,6 +3,18 @@
 use crate::{BinaryFormat, Parts};
 
 impl<S> Parts<S> {
+    /// Convert `self` to a Rust floating-point value.
+    ///
+    /// If `self` can be represented exactly as a value `v` of the type `T`,
+    /// return `Assembled::Exact(v)`.
+    ///
+    /// If `self` is in range, but cannot be represented exactly in `T`, return
+    /// `Assembled::Rounded(v)`, where `v` is the value of `self` rounded
+    /// towards zero.
+    ///
+    /// If `self` is too large to be represented in `T`, return
+    /// `Assembled::Infinity(i)`, where `i` is the infinity of `T` with the same
+    /// sign as `self`.
     pub fn to_float<T: BinaryFormat>(&self) -> Assembled<T> {
         let mut mantissa = self.mantissa;
 
@@ -13,24 +25,24 @@ impl<S> Parts<S> {
         // How many interesting bits are there in `mantissa`?
         let mut significant_bits = Self::MANTISSA_BITS - mantissa.leading_zeros();
 
-        // What exponent would this require as a normal number? In IEEE, the
+        // What exponent would `self` require as a normal float? In IEEE, the
         // binary point comes at the left of the mantissa's bits, not the right.
         //
         // Note that in normal numbers, the leading `1` bit of the mantissa
         // becomes implicit.
-        let normal_exponent = self
+        let unbiased_exponent = self
             .explicit_exponent
             .saturating_add(self.exponent)
             .saturating_add(significant_bits as i32 - 1);
-        if normal_exponent > T::MAX_NORMAL_EXP {
+        if unbiased_exponent > T::MAX_NORMAL_EXP {
             return Assembled::Infinity(self.infinity());
         }
-        if normal_exponent < T::MIN_NORMAL_EXP {
+        if unbiased_exponent < T::MIN_NORMAL_EXP {
             // TODO: implement subnormals
             return Assembled::Rounded(self.zero());
         }
 
-        let exact;
+        let mut exact = self.exact;
         if significant_bits > T::MANTISSA_WIDTH + 1 {
             // We have too many bits to represent in the mantissa, even
             // including the implicit leading `1` bit. Drop bits off the bottom,
@@ -40,8 +52,6 @@ impl<S> Parts<S> {
             exact = false;
             mantissa = mantissa >> (significant_bits - (T::MANTISSA_WIDTH + 1));
             significant_bits = T::MANTISSA_WIDTH + 1;
-        } else {
-            exact = true;
         }
 
         // Since the mantissa now fits in `MANTISSA_WIDTH + 1` bits, putting its
@@ -53,7 +63,7 @@ impl<S> Parts<S> {
         debug_assert!(mantissa & (1 << T::MANTISSA_WIDTH) != 0);
         mantissa &= !(1 << T::MANTISSA_WIDTH);
 
-        let biased_exponent = normal_exponent + T::EXPONENT_BIAS;
+        let biased_exponent = unbiased_exponent + T::EXPONENT_BIAS;
         assert!(biased_exponent >= 1);
         let f = T::from_bitfields(
             self.sign_bit(),
@@ -70,7 +80,11 @@ impl<S> Parts<S> {
 
     // Return the infinity of `T` with the same sign as `self`.
     fn infinity<T: BinaryFormat>(&self) -> T {
-        T::infinity(self.sign == -1)
+        if self.sign == -1 {
+            T::NEG_INFINITY
+        } else {
+            T::INFINITY
+        }
     }
 
     // Return the zero of `T` with the same sign as `self`.
@@ -89,8 +103,8 @@ pub enum Assembled<T> {
     /// The input can be represented exactly as the given value.
     Exact(T),
 
-    /// The input value cannot be represented exactly in the given type,
-    /// but can be represented with rounding as the given value.
+    /// The input value cannot be represented exactly in the given type, but can
+    /// be represented with rounding towards zero as the given value.
     Rounded(T),
 
     /// The input overflowed, and is represented as the given infinity.
@@ -105,4 +119,65 @@ impl<T> Assembled<T> {
             Self::Infinity(v) => v,
         }
     }
+}
+
+#[cfg(test)]
+fn make(sign: i32, mantissa: u64, exponent: i32) -> Parts<()> {
+    assert!(mantissa == 0 || mantissa & 1 == 1);
+    Parts {
+        mantissa,
+        exponent,
+        present: crate::PartFlags::empty(),
+        sign,
+        last_digit_exponent: 0,
+        explicit_exponent: 0,
+        exact: true,
+        suffix: None,
+    }
+}
+
+#[test]
+fn simple() {
+    assert_eq!(make(1, 0, 0).to_float(), Assembled::Exact(0.0));
+    assert_eq!(make(-1, 0, 0).to_float(), Assembled::Exact(-0.0));
+    assert_eq!(make(1, 1, 0).to_float(), Assembled::Exact(1.0));
+    assert_eq!(make(1, 1, 1).to_float(), Assembled::Exact(2.0));
+    assert_eq!(make(1, 1, -1).to_float(), Assembled::Exact(0.5));
+
+    assert_eq!(make(1, 1, 50).to_float(), Assembled::Exact(f32::powi(2.0, 50)));
+    assert_eq!(make(1, 1, -50).to_float(), Assembled::Exact(f32::powi(2.0, -50)));
+
+    assert_eq!(make(1, 7, -1).to_float(), Assembled::Exact(7.0 / 2.0));
+    assert_eq!(make(1, 7, -1).to_float(), Assembled::Exact(7.0 / 2.0));
+    assert_eq!(make(1, 7, -20).to_float(), Assembled::Exact(7.0 / f32::powi(2.0, 20)));
+    assert_eq!(make(1, 7, 20).to_float(), Assembled::Exact(7.0 * f32::powi(2.0, 20)));
+
+    assert_eq!(make(1, 7, -1).to_float::<f64>(), Assembled::Exact(7.0 / 2.0));
+    assert_eq!(make(1, 7, -1).to_float::<f64>(), Assembled::Exact(7.0 / 2.0));
+    assert_eq!(make(1, 7, -20).to_float::<f64>(), Assembled::Exact(7.0 / f64::powi(2.0, 20)));
+    assert_eq!(make(1, 7, 20).to_float::<f64>(), Assembled::Exact(7.0 * f64::powi(2.0, 20)));
+}
+
+#[test]
+fn extrema() {
+    assert_eq!(f32::MAX_NORMAL_EXP, 127);
+    assert_eq!(make(1, 1, 127).to_float::<f32>(), Assembled::Exact(f32::powi(2.0, 127)));
+    assert_eq!(make(1, 3, 127).to_float::<f32>(), Assembled::Infinity(f32::INFINITY));
+    assert_eq!(make(1, 1, 128).to_float::<f32>(), Assembled::Infinity(f32::INFINITY));
+    assert_eq!(make(-1, 1, 128).to_float::<f32>(), Assembled::Infinity(f32::NEG_INFINITY));
+
+    assert_eq!(f32::MIN_NORMAL_EXP, -126);
+    assert_eq!(make(1, 1, -126).to_float::<f32>(), Assembled::Exact(f32::powi(2.0, -126)));
+    // Note: this should become a subnormal
+    assert_eq!(make(1, 1, -127).to_float::<f32>(), Assembled::Rounded(0.0));
+
+    assert_eq!(f64::MAX_NORMAL_EXP, 1023);
+    assert_eq!(make(1, 1, 1023).to_float::<f64>(), Assembled::Exact(f64::powi(2.0, 1023)));
+    assert_eq!(make(1, 3, 1023).to_float::<f64>(), Assembled::Infinity(f64::INFINITY));
+    assert_eq!(make(-1, 1, 1024).to_float::<f64>(), Assembled::Infinity(f64::NEG_INFINITY));
+
+    assert_eq!(f64::MIN_NORMAL_EXP, -1022);
+    assert_eq!(make(1, 1, -1022).to_float::<f64>(), Assembled::Exact(f64::powi(2.0, -1022)));
+    // Note: this should become a subnormal
+    assert_eq!(make(1, 1, -1023).to_float::<f64>(), Assembled::Rounded(0.0));
 }
