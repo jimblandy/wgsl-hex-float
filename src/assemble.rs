@@ -181,3 +181,23 @@ fn extrema() {
     // Note: this should become a subnormal
     assert_eq!(make(1, 1, -1023).to_float::<f64>(), Assembled::Rounded(0.0));
 }
+
+#[test]
+fn too_many_bits() {
+    // This is 23 bits. Should fit.
+    assert_eq!(make(1, 0x7fff0f, 0).to_float::<f32>(), Assembled::Exact(0x7fff0f as f32));
+    // This is 24 bits, but that's okay, too: there's an implicit `1` bit.
+    assert_eq!(make(1, 0xffff0f, 0).to_float::<f32>(), Assembled::Exact(0xffff0f as f32));
+    // This is 25 bits, and must be rounded.
+    assert_eq!(make(1, 0x1ffff0f, 0).to_float::<f32>(), Assembled::Rounded(0x1ffff0e as f32));
+
+    // 52 bits. Should fit.
+    assert_eq!(make(1, 0xf_ffff_0000_ffff, 0).to_float::<f64>(),
+               Assembled::Exact(0xf_ffff_0000_ffff_u64 as f64));
+    // This is 53 bits, but that's okay: there's an implicit `1` bit.
+    assert_eq!(make(1, 0x1f_ffff_0000_ffff, 0).to_float::<f64>(),
+               Assembled::Exact(0x1f_ffff_0000_ffff_u64 as f64));
+    // This is 54 bits, and must be rounded.
+    assert_eq!(make(1, 0x3f_ffff_0000_ffff, 0).to_float::<f64>(),
+               Assembled::Rounded(0x3f_ffff_0000_fffe_u64 as f64));
+}
