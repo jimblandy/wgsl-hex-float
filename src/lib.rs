@@ -4,26 +4,35 @@ This crate provides `#[no_std]`-friendly functions for parsing hexadecimal float
 values as described in the [WGSL specification][wgsl], as well as more general
 utilities that you can use for building floats from your own syntax.
 
-```ignore
-# fn main() {
-let f: f32 = hex_float::wgsl::parse("0x80.8p-5").unwrap().get();
-assert_eq!(f, 4.015625);
+```
+# use hex_float::{Parts, PartFlags};
+let (p, rest) = hex_float::wgsl::parse("0x80.8p-5").unwrap();
+assert_eq!(p.to_float::<f32>().get(), 4.015625);
+assert_eq!(rest, "");
+```
 
+Parsing actually returns a [`Parts`] value, which breaks down the
+literal into its individual components:
+
+```
+# use hex_float::{Parts, PartFlags};
 // Parse a literal into its parts
-let (p, rest) = hex_float::parse_as_parts("-0xc.04p5 and more").unwrap();
+let (p, rest) = hex_float::wgsl::parse("-0xc.04p5h and more").unwrap();
 assert_eq!(p, Parts {
+    present: PartFlags::all(),
     sign: -1,
-    prefix: true,
-    whole: Whole::new(12),
-    fraction: Fraction::with_exponent(4, 2), // 4 * 16^-2
-    exponent: 5,
+    mantissa: 0xc04 >> 2,
+    exponent: -6,
+    last_digit_exponent: -8,
+    explicit_exponent: 5,
+    exact: true,
+    suffix: Some(hex_float::wgsl::Suffix::F16),
 });
 assert_eq!(rest, " and more");
 
 // Assemble those parts into an `f64`.
-let g: f64 = hex_float::from_parts(p).unwrap().get();
+let g: f64 = p.to_float().get();
 assert_eq!(g, -384.5);
-# }
 ```
 
 This crate's functions report rounding and overflow, when the value of a

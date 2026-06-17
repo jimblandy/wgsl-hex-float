@@ -1,6 +1,6 @@
 /*! Definition of [`Parts`]. */
 
-/// A hexadecimal literal in the process of being parsed.
+/// A hexadecimal literal that has been parsed into its components.
 ///
 /// This struct represents a hexadecimal numeric literal, either integral or
 /// floating-point, that is in the midst of being parsed. Once a `Parts` value
@@ -15,12 +15,13 @@
 ///
 /// assert_eq!(p, Parts {
 ///     present:
-///     PartFlags::PREFIX       // "0x"
-///     | PartFlags::WHOLE      // "12"
-///     | PartFlags::POINT      // "."
-///     | PartFlags::FRACTION   // "345"
-///     | PartFlags::EXPONENT,  // "p-687"
-///     sign: 1,                // the default sign
+///     PartFlags::PREFIX         // "0x"
+///     | PartFlags::WHOLE        // "12"
+///     | PartFlags::POINT        // "."
+///     | PartFlags::FRACTION     // "345"
+///     | PartFlags::EXPONENT     // "p-687"
+///     | PartFlags::TYPE_SUFFIX, // "f"
+///     sign: 1,                  // the default sign
 ///     mantissa: 0x12345,
 ///     exponent: -12,          // does not include explicit exponent
 ///     last_digit_exponent: -12,
@@ -149,7 +150,11 @@ pub struct Parts<S> {
     /// This would be represented by [`wgsl::Suffix::F16`]. But other languages
     /// would supply different suffix types here.
     ///
+    /// If this is `Some`, [`TYPE_SUFFIX`] is set in `present`. If
+    /// this is `None`, [`TYPE_SUFFIX`] is clear.
+    ///
     /// [`wgsl::Suffix::F16`]: crate::wgsl::Suffix::F16.
+    /// [`TYPE_SUFFIX`]: PartFlags::TYPE_SUFFIX
     pub suffix: Option<S>,
 }
 
@@ -179,5 +184,8 @@ bitflags::bitflags! {
 
         /// An exponent, introduced by a `'p'` or `'P'` character.
         const EXPONENT = 1 << 5;
+
+        /// A type suffix, like `f` or `h`.
+        const TYPE_SUFFIX = 1 << 6;
     }
 }

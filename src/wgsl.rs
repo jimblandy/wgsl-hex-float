@@ -47,17 +47,23 @@ use crate::{PartFlags, Parts};
 /// Parse `input` as a WGSL hexadecimal floating-point or integer literal.
 ///
 /// Consume a WGSL [`hex_float_literal`] or [`hex_int_literal`] from the front
-/// of `input`. On success, return a `Parts` value presentin the parsed form of
+/// of `input`. On success, return a [`Parts`] value presentin the parsed form of
 /// the literal, and the unconsumed portion of `input`.
 ///
 /// Integral and floating-point literals can be distinguished by checking for
 /// the presence of either a fractional part or an exponent, as returned in
 /// [`Parts::present`].
+///
+/// Note that this also allows a sign to be present at the beginning of the
+/// literal. This is not part of the official WGSL literal syntax. If you would
+/// ilke to forbid the sign, use [`parse_with_allowed_parts`] instead.
 pub fn parse(input: &str) -> Result<(Parts<Suffix>, &str), Error> {
-    let (parts, rest) = parse_with_options(input, FLOAT_OR_INT_PARTS)?;
+    let (parts, rest) = parse_with_allowed_parts(input, WGSL_FLOAT_OR_INT_PARTS | PartFlags::SIGN)?;
+
     if !parts.present.contains(PartFlags::PREFIX) {
         return Err(Error::MissingPrefix);
     }
+
     match parts.suffix {
         None => {
             // There have to be some mantissa digits present somewhere.
@@ -65,39 +71,50 @@ pub fn parse(input: &str) -> Result<(Parts<Suffix>, &str), Error> {
                 .present
                 .intersects(PartFlags::WHOLE | PartFlags::FRACTION)
             {
-                return Err(Error::MissingWholeAndFraction);
+                return Err(Error::
             }
         }
         Some(Suffix::I32 | Suffix::U32) => {
-            if parts.present.intersects(PartFlags::EXPONENT) {
-                return Err(Error::IntegerHasExponent);
+            // The grammar does not include `i` or `u` suffixes if an exponent
+            // or fractional part was present. The parser should have left them
+            // in the input, unconsumed.
+            assert!(
+                !parts
+                    .present
+                    .intersects(PartFlags::FRACTION | PartFlags::EXPONENT)
+            );
+
+            // There have to be some mantissa digits present somewhere.
+            if !parts.present.intersects(PartFlags::WHOLE) {
+                return Err(Error::MissingWhole);
             }
-            // If we saw a fraction, but no exponent, then the grammar says that
-            // trailing letters are not part of the literal, so we should not
-            // have parsed a suffix at all.
-            assert!(!parts.present.contains(PartFlags::FRACTION));
         }
         Some(Suffix::F16 | Suffix::F32) => {
+            // Since there was a floating-point type suffix, there must have
+            // been an exponent.
+            assert!(parts.present.contains(PartFlags::EXPONENT));
+
+            // Even with the exponent present, there must have been some whole
+            // digits or fractional digits.
             if !parts
                 .present
                 .intersects(PartFlags::WHOLE | PartFlags::FRACTION)
             {
                 return Err(Error::MissingWholeAndFraction);
             }
-            // Since there was a type suffix, there must have been an exponent,
-            // so we don't need to require that there was either a fractional
-            // part or an exponent.
         }
     }
+
     Ok((parts, rest))
 }
 
 /// Parts that may be present in a WGSL hexadecimal floating-point or integer literal.
-pub const FLOAT_OR_INT_PARTS: PartFlags = PartFlags::PREFIX
+pub const WGSL_FLOAT_OR_INT_PARTS: PartFlags = PartFlags::PREFIX
     .union(PartFlags::WHOLE)
     .union(PartFlags::POINT)
     .union(PartFlags::FRACTION)
-    .union(PartFlags::EXPONENT);
+    .union(PartFlags::EXPONENT)
+    .union(PartFlags::TYPE_SUFFIX);
 
 /// Parts that may be present in a WGSL hexadecimal integer literal.
 pub const INT_PARTS: PartFlags = PartFlags::PREFIX.union(PartFlags::WHOLE);
@@ -128,7 +145,7 @@ pub const INT_PARTS: PartFlags = PartFlags::PREFIX.union(PartFlags::WHOLE);
 /// [`SIGN`]: PartFlags::SIGN
 /// [`PREFIX`]: PartFlags::PREFIX_ALLOWED
 /// [`present`]: Parts::present
-pub fn parse_with_options(
+pub fn parse_with_allowed_parts(
     mut input: &str,
     allow: PartFlags,
 ) -> Result<(Parts<Suffix>, &str), Error> {
@@ -202,19 +219,41 @@ pub fn parse_with_options(
         }
     }
 
-    // Parse a type suffix. This is only allowed if no decimal point is present,
-    // or if the exponent is present, as `f` would otherwise be treated as a
-    // hexadecimal digit.
-    if !result.present.contains(PartFlags::POINT) || result.present.contains(PartFlags::EXPONENT) {
+    // Parse a type suffix.
+    if allow.contains(PartFlags::TYPE_SUFFIX) {
         let mut chars = input.chars();
-        result.suffix = match chars.next() {
-            Some('u') => Some(Suffix::U32),
-            Some('i') => Some(Suffix::I32),
-            Some('h') => Some(Suffix::F16),
-            Some('f') => Some(Suffix::F32),
-            _ => None,
+
+        // If we've seen an exponent, then floating-point suffixes are allowed.
+        //
+        // If we've seen no evidence of a float literal (either fractional
+        // digits or an exponent), then integer literals are allowed.
+        //
+        // Unacceptable suffixes are simply left in `input` unconsumed. In WGSL,
+        // these rules are not post-parsing consistency checks; they're built
+        // into the grammar, so the syntax for literals just doesn't include
+        // them. I don't think there's any place in WGSL where an identifier can
+        // directly follow a literal, so it'll trigger an error anyway.
+        result.suffix = if result.present.contains(PartFlags::EXPONENT) {
+            match chars.next() {
+                Some('h') => Some(Suffix::F16),
+                Some('f') => Some(Suffix::F32),
+                _ => None,
+            }
+        } else if !result
+            .present
+            .intersects(PartFlags::POINT | PartFlags::EXPONENT)
+        {
+            match chars.next() {
+                Some('u') => Some(Suffix::U32),
+                Some('i') => Some(Suffix::I32),
+                _ => None,
+            }
+        } else {
+            None
         };
+
         if result.suffix.is_some() {
+            result.present.insert(PartFlags::TYPE_SUFFIX);
             input = chars.as_str();
         }
     }
@@ -261,16 +300,33 @@ pub enum Error {
     #[error("hexadecimal literal exponent must contain at least one digit")]
     ExponentMissingDigits,
 
+    #[error("hexadecimal integer literal must contain at least one whole digit")]
+    MissingWhole,
+
     #[error("hexadecimal literal must contain at least one whole or fractional digit")]
     MissingWholeAndFraction,
-
-    #[error("integer hexadecimal literals may not have an exponent")]
-    IntegerHasExponent,
 }
 
 #[test]
 fn spec_examples() {
     use PartFlags as Pf;
+
+    assert_eq!(
+        parse("0x123*"),
+        Ok((
+            Parts {
+                present: Pf::PREFIX | Pf::WHOLE,
+                sign: 1,
+                mantissa: 0x123,
+                exponent: 0,
+                last_digit_exponent: 0,
+                explicit_exponent: 0,
+                exact: true,
+                suffix: None
+            },
+            "*"
+        ))
+    );
 
     assert_eq!(
         parse("0xa.fp+2 "),
@@ -293,7 +349,7 @@ fn spec_examples() {
         parse("0x1P+4f "),
         Ok((
             Parts {
-                present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT,
+                present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT | Pf::TYPE_SUFFIX,
                 sign: 1,
                 mantissa: 0x1,
                 exponent: 0,
@@ -327,7 +383,7 @@ fn spec_examples() {
         parse("0x3p+2h0"),
         Ok((
             Parts {
-                present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT,
+                present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT | Pf::TYPE_SUFFIX,
                 sign: 1,
                 mantissa: 0x3,
                 exponent: 0,
@@ -361,7 +417,12 @@ fn spec_examples() {
         parse("0x3.2p+2hx"),
         Ok((
             Parts {
-                present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION | Pf::EXPONENT,
+                present: Pf::PREFIX
+                    | Pf::WHOLE
+                    | Pf::POINT
+                    | Pf::FRACTION
+                    | Pf::EXPONENT
+                    | Pf::TYPE_SUFFIX,
                 sign: 1,
                 mantissa: 0x19,
                 exponent: -3,
@@ -380,7 +441,7 @@ fn type_suffix() {
     use PartFlags as Pf;
 
     assert_eq!(
-        parse("0x1.0f "),
+        parse("0x1.0f "), // hex digit, suffix
         Ok((
             Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION,
@@ -397,7 +458,7 @@ fn type_suffix() {
     );
 
     assert_eq!(
-        parse("0x1.0u"),
+        parse("0x1.0h "), // no exponent, suffix not parsed
         Ok((
             Parts {
                 present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION,
@@ -408,6 +469,74 @@ fn type_suffix() {
                 explicit_exponent: 0,
                 exact: true,
                 suffix: None,
+            },
+            "h "
+        )),
+    );
+
+    assert_eq!(
+        parse("0x1h"), // no exponent, suffix not parsed
+        Ok((
+            Parts {
+                present: Pf::PREFIX | Pf::WHOLE,
+                sign: 1,
+                mantissa: 0x1,
+                exponent: 0,
+                last_digit_exponent: 0,
+                explicit_exponent: 0,
+                exact: true,
+                suffix: None
+            },
+            "h"
+        )),
+    );
+
+    assert_eq!(
+        parse("0x1uf"),
+        Ok((
+            Parts {
+                present: Pf::PREFIX | Pf::WHOLE | Pf::TYPE_SUFFIX,
+                sign: 1,
+                mantissa: 0x1,
+                exponent: 0,
+                last_digit_exponent: 0,
+                explicit_exponent: 0,
+                exact: true,
+                suffix: Some(Suffix::U32),
+            },
+            "f"
+        )),
+    );
+
+    assert_eq!(
+        parse("0x1.0u"), // fraction present, integer suffix not parsed
+        Ok((
+            Parts {
+                present: Pf::PREFIX | Pf::WHOLE | Pf::POINT | Pf::FRACTION,
+                sign: 1,
+                mantissa: 0x1,
+                exponent: 0,
+                last_digit_exponent: -4,
+                explicit_exponent: 0,
+                exact: true,
+                suffix: None,
+            },
+            "u"
+        )),
+    );
+
+    assert_eq!(
+        parse("0x1p4u"), // exponent present, integer suffix not parsed
+        Ok((
+            Parts {
+                present: Pf::PREFIX | Pf::WHOLE | Pf::EXPONENT,
+                sign: 1,
+                mantissa: 0x1,
+                exponent: 0,
+                last_digit_exponent: 0,
+                explicit_exponent: 4,
+                exact: true,
+                suffix: None
             },
             "u"
         )),
@@ -457,7 +586,8 @@ fn exponent_overflow() {
 fn errors() {
     assert_eq!(parse("0"), Err(Error::MissingPrefix));
     assert_eq!(parse("0x.p0"), Err(Error::MissingWholeAndFraction));
-    assert_eq!(parse("0x1p4u"), Err(Error::IntegerHasExponent));
+    assert_eq!(parse("0xu"), Err(Error::MissingWhole));
     assert_eq!(parse("0x.p4f"), Err(Error::MissingWholeAndFraction));
     assert_eq!(parse("0x1pa"), Err(Error::ExponentMissingDigits));
+    assert_eq!(parse("0x.h"), Err(Error::MissingWholeAndFraction));
 }
