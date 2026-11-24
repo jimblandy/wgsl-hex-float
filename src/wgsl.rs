@@ -1,4 +1,4 @@
-/*! Parsing of WGSL hexademical floats.
+/*! Parsing of WGSL hexadecimal floats.
 
 The functions in this module parse hexadecimal float and integer literals as
 described in the [WGSL] specification. On success, they return a [`Parts`]
@@ -246,7 +246,7 @@ pub enum Suffix {
     /// The suffix `'h'`, indicating a 16-bit floating-point literal.
     F16,
 
-    /// The suffix `'f'`, indicating a 32-bit floating-ponit literal.
+    /// The suffix `'f'`, indicating a 32-bit floating-point literal.
     F32,
 }
 
