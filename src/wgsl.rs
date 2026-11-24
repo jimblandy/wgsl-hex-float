@@ -42,6 +42,8 @@ absent.
 
 */
 
+use std::fmt::Display;
+
 use crate::{PartFlags, Parts};
 
 /// Parse `input` as a WGSL hexadecimal floating-point or integer literal.
@@ -250,22 +252,36 @@ pub enum Suffix {
     F32,
 }
 
-#[derive(thiserror::Error, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
-    #[error("hexadecimal literal was missing `0x` or `0X` prefix")]
     MissingPrefix,
-
-    #[error("hexadecimal literal exponent is too large")]
     ExponentOverflow,
-
-    #[error("hexadecimal literal exponent must contain at least one digit")]
     ExponentMissingDigits,
-
-    #[error("hexadecimal literal must contain at least one whole or fractional digit")]
     MissingWholeAndFraction,
-
-    #[error("integer hexadecimal literals may not have an exponent")]
     IntegerHasExponent,
+}
+
+impl std::error::Error for Error {}
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::MissingPrefix => {
+                write!(f, "hexadecimal literal was missing `0x` or `0X` prefix")
+            }
+            Error::ExponentOverflow => write!(f, "hexadecimal literal exponent is too large"),
+            Error::ExponentMissingDigits => write!(
+                f,
+                "hexadecimal literal exponent must contain at least one digit"
+            ),
+            Error::MissingWholeAndFraction => write!(
+                f,
+                "hexadecimal literal must contain at least one whole or fractional digit"
+            ),
+            Error::IntegerHasExponent => {
+                write!(f, "integer hexadecimal literals may not have an exponent")
+            }
+        }
+    }
 }
 
 #[test]
