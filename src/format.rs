@@ -75,7 +75,7 @@ pub trait BinaryFormat: Sized {
     ///
     /// If the exponent field is interpreted as an unsigned number, this is the
     /// number subtracted from that to produce the actual exponent for the power
-    /// of two by which the mantissa is multipled.
+    /// of two by which the mantissa is multiplied.
     ///
     /// In principle, many different biases would work, but IEEE formats all
     /// choose this to be half the largest value the exponent field can hold,
